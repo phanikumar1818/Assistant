@@ -52,7 +52,7 @@ GEMINI_API_KEY=your_actual_api_key_here
 ### Step 3: Run Vysper
 
 ```bash
-nom run build
+npm run build
 
 npm start
 ```
