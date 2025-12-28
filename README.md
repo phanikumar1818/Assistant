@@ -1,196 +1,280 @@
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/186d5458-7e8b-406a-9adc-ce755256298c" 
-       alt="Group 14" 
-       width="300" 
-       style="padding: 10px; border-radius: 8px;"/>
-</p>
+# 🚀 Vysper Setup Guide
 
-# Vysper
-
-**Professional Interview Assistant with Invisible Screen Overlay**
-
-An AI-powered desktop tool that helps you excel in technical and professional interviews by providing intelligent, real-time assistance while remaining completely invisible to screen sharing and recording software.
-
-### Demo
-https://github.com/user-attachments/assets/c5616482-3652-4686-b87b-e04d06572d2f
+This guide will get you up and running with Vysper in **under 5 minutes**.
 
 ---
 
-## ⚡ Super Quick Start (3 Commands!)
+## 📋 Requirements
+
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Node.js | 18.0.0+ | [Download here](https://nodejs.org/) |
+| npm | 9.0.0+ | Comes with Node.js |
+| Git | Any | [Download here](https://git-scm.com/) |
+
+---
+
+## ⚡ Quick Start (3 Steps)
+
+### Step 1: Install Dependencies
 
 ```bash
-# 1. Install packages
+# Clone the repository (if you haven't)
+git clone <repository-url>
+cd Vysper
+
+# Install all packages
 npm install
+```
 
-# 2. Copy and edit config (add your Gemini API key)
-# Windows: copy env.example .env
-# Mac/Linux: cp env.example .env
+### Step 2: Configure API Keys
 
-# 3. Run!
-npm start
+```bash
+# Copy the example environment file
+# Windows (Command Prompt):
+copy env.example .env
+
+# Windows (PowerShell):
+Copy-Item env.example .env
+
+# Mac/Linux:
+cp env.example .env
+```
+
+Now edit `.env` and add your API key:
+
+```env
+GEMINI_API_KEY=your_actual_api_key_here
 ```
 
 **Get your free Gemini API key:** https://aistudio.google.com/app/apikey
 
-📖 **[Full Setup Guide →](SETUP.md)** | 🔍 **Run `npm run setup:check` to verify your setup**
+### Step 3: Run Vysper
 
----
-
-## Perfect for Interviews
-**Completely Stealth** - Invisible to Zoom, Teams, Meet, and all screen sharing tools
-**Real-time AI Assistance** - Instant help with coding problems, system design, and interview questions
-**Professional Skills** - Specialized modes for different interview types
-
-### Supported Interview Skills
-- **DSA (Data Structures & Algorithms)** - Complete solutions with complexity analysis
-- **System Design** - Architecture patterns and scalability approaches  
-- **Programming** - Multi-language coding assistance and best practices
-- **Behavioral** - STAR method responses and professional scenarios
-- **Sales** - Frameworks, objection handling, and closing techniques
-- **Negotiation** - Strategic approaches and persuasion tactics
-- **Presentation** - Structure, delivery tips, and visual design
-- **DevOps** - Infrastructure, CI/CD, and deployment strategies
-- **Data Science** - Analytics, ML approaches, and statistical methods
-
-## 🚀 Installation
-
-### Prerequisites
-- **Node.js 18+** - [Download here](https://nodejs.org/)
-- **Git** - [Download here](https://git-scm.com/)
-
-### Quick Install
 ```bash
-git clone <repository-url>
-cd Vysper
-npm install
+nom run build
+
 npm start
 ```
 
-### 🔑 Configuration
+That's it! 🎉
 
-Copy `env.example` to `.env` and add your API key:
+---
 
-```bash
-# Required - Get from https://aistudio.google.com/app/apikey
-GEMINI_API_KEY=your_gemini_api_key
+## 🔑 API Keys Setup
 
-# Optional - For voice input (Azure Speech)
-AZURE_SPEECH_KEY=your_azure_speech_key
-AZURE_SPEECH_REGION=eastus
+### Required: Google Gemini AI
+
+1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Sign in with your Google account
+3. Click **"Create API Key"**
+4. Copy the key and add it to your `.env` file
+
+
+## 🔧 Platform-Specific Setup
+
+### Windows
+
+```powershell
+# 1. Install Node.js from https://nodejs.org/
+
+# 2. Open PowerShell/Command Prompt and navigate to project
+cd path\to\Vysper
+
+# 3. Install dependencies
+npm install
+
+# 4. Create .env file
+Copy-Item env.example .env
+
+# 5. Edit .env with your favorite editor (notepad, VS Code, etc.)
+notepad .env
+
+# 6. Run
+npm start
 ```
 
-📢 **🎓 Students:** Get $100 free Azure credits + 5 hours free speech-to-text!
+**Optional: Install SoX for voice recording**
+- Download from: https://sourceforge.net/projects/sox/
+- Or use Chocolatey: `choco install sox`
 
-### 🏗️ Building Distributable Apps
+### macOS
 
 ```bash
-npm run build          # Current platform
-npm run build:win      # Windows (.exe)
-npm run build:mac      # macOS (.dmg)
-npm run build:linux    # Linux (.AppImage, .deb)
-npm run build:all      # All platforms
+# 1. Install Node.js (if not installed)
+brew install node
+
+# 2. Install optional dependencies for voice recording
+brew install sox
+
+# 3. Navigate to project
+cd path/to/Vysper
+
+# 4. Install packages
+npm install
+
+# 5. Create and configure .env
+cp env.example .env
+nano .env  # or use any editor
+
+# 6. Run
+npm start
 ```
 
-**Built apps appear in `dist/` folder**
+### Linux (Ubuntu/Debian)
 
-## ⌨️ Essential Shortcuts
+```bash
+# 1. Install Node.js
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
 
-### Core Functions
+# 2. Install optional dependencies for voice recording
+sudo apt-get install sox
+
+# 3. Navigate to project
+cd path/to/Vysper
+
+# 4. Install packages
+npm install
+
+# 5. Create and configure .env
+cp env.example .env
+nano .env
+
+# 6. Run
+npm start
+```
+
+---
+
+## ✅ Verify Your Setup
+
+Run the setup checker to verify everything is configured correctly:
+
+```bash
+npm run setup:check
+```
+
+This will check:
+- ✓ Node.js version
+- ✓ All npm packages installed
+- ✓ Environment configuration
+- ✓ External tools (SoX)
+- ✓ Project files
+
+---
+
+## 🏗️ Building the App
+
+Create distributable versions:
+
+```bash
+# Build for your current platform
+npm run build
+
+# Platform-specific builds
+npm run build:win     # Windows (.exe)
+npm run build:mac     # macOS (.dmg)
+npm run build:linux   # Linux (.AppImage, .deb)
+
+# Build for all platforms
+npm run build:all
+```
+
+Built files will be in the `dist/` folder.
+
+---
+
+## 🛠️ Development
+
+```bash
+# Start in development mode (more logs)
+npm run dev
+
+# Start with Chrome DevTools
+npm run dev:debug
+
+# Clean build artifacts
+npm run clean
+```
+
+---
+
+## 📁 Project Structure
+
+```
+Vysper/
+├── main.js              # Electron main process
+├── preload.js           # Secure bridge between main and renderer
+├── index.html           # Main window
+├── chat.html            # Chat window
+├── settings.html        # Settings window
+├── llm-response.html    # AI response window
+├── .env                 # Your configuration (create this!)
+├── env.example          # Configuration template
+├── package.json         # Dependencies and scripts
+├── prompts/             # AI prompt templates
+├── src/
+│   ├── core/            # Core utilities (config, logger)
+│   ├── services/        # Services (LLM, OCR, Speech)
+│   ├── managers/        # Window and session management
+│   └── ui/              # UI scripts
+└── assests/             # Icons and images
+```
+
+---
+
+## ❓ Troubleshooting
+
+### "Gemini API key not configured"
+- Make sure you created a `.env` file (not just `env.example`)
+- Verify your API key is correct (no extra spaces)
+- Restart the app after changing `.env`
+
+### "npm install" fails
+- Make sure you have Node.js 18+ installed: `node --version`
+- Try clearing npm cache: `npm cache clean --force`
+- Delete `node_modules` and `package-lock.json`, then reinstall
+
+### "Voice recording not working"
+- Install SoX (see platform-specific instructions above)
+- On Windows, make sure SoX is in your PATH
+- Check microphone permissions in your OS settings
+
+### App window is invisible
+- Press `Cmd+Shift+V` (Mac) or `Ctrl+Shift+V` (Win/Linux) to toggle visibility
+- Press `Alt+A` to toggle interaction mode
+
+### "Cannot find module" errors
+```bash
+# Reinstall all dependencies
+rm -rf node_modules package-lock.json
+npm install
+```
+
+---
+
+## ⌨️ Keyboard Shortcuts
+
 | Shortcut | Action |
 |----------|--------|
-| `Cmd + Shift + S` | Screenshot + AI Analysis |
-| `Alt/Option + R` | Voice Recording Toggle |
-| `Cmd + Shift + \` | Show/Hide All Windows |
-| `Alt + A` | Toggle Interactive Mode |
+| `Ctrl/Cmd + Shift + S` | Screenshot + AI Analysis |
+| `Alt + R` | Toggle Voice Recording |
+| `Ctrl/Cmd + Shift + V` | Toggle Window Visibility |
+| `Alt + A` | Toggle Interaction Mode |
+| `Ctrl/Cmd + Shift + C` | Open Chat Window |
+| `Ctrl/Cmd + ,` | Open Settings |
+| `Ctrl/Cmd + Shift + \` | Clear Session Memory |
 
-### Navigation
-| Shortcut | Action |
-|----------|--------|
-| `Cmd + Shift + C` | Chat Window |
-| `Cmd + Arrow Up/Down` | Skills Selection (only if Interactive mode is on) |
-| `Cmd + ,` | Settings |
+---
 
-### Session Management
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+Shift+\` | Clear Session Memory |
+## 📞 Need Help?
 
-### Important Interaction Usage Tip 
-* Enable **Interaction Mode** to scroll, click, or select inside windows.
-* Use `Cmd+Up/Down` (in Interaction Mode) to switch skills quickly.
-* Click thorugh screen works only when interaction mode is disabled
-* In **Stealth Mode**, windows are invisible to screen share & mouse.
+1. Run setup checker: `npm run setup:check`
+2. Check the logs: `~/.Vysper/logs/`
+3. Create an issue on GitHub
 
-## 🔧 Key Features
+---
 
-### Stealth Technology
-- **Invisible to Screen Sharing** - Completely hidden from Zoom, Teams, Meet
-- **Process Disguise** - Appears as "Vysper" in system monitors
-- **Click-through Mode** - Windows become transparent to mouse clicks
-- **No Screen Recording Detection** - Undetectable by recording software
+Happy interviewing! 🎯
 
-### AI-Powered Analysis
-- **Screenshot OCR** - Extract and analyze text from any screen content
-- **Voice Commands** - Speak questions and get instant AI responses
-- **Context-Aware** - Remembers conversation history for better responses
-- **Multi-Format Output** - Clean text and code blocks with syntax highlighting
-
-### Interview-Specific Intelligence
-- **Problem Recognition** - Automatically detects interview question types
-- **Step-by-Step Solutions** - Detailed explanations with best practices
-- **Code Examples** - Multi-language implementations with optimizations
-
-## 💡 Pro Tips
-
-### During Technical Interviews
-1. **Position Windows**: Place Vysper windows in screen corners before sharing
-2. **Use Voice Mode**: Whisper questions during "thinking time"
-3. **Screenshot Problems**: Capture coding challenges for instant solutions
-4. **Check Solutions**: Verify your approach with AI before implementing
-
-### For System Design
-1. **Capture Requirements**: Screenshot or voice record the problem statement
-2. **Get Frameworks**: Ask for architectural patterns and trade-offs
-3. **Verify Scalability**: Double-check your design decisions
-
-### Behavioral Questions
-1. **STAR Method**: Get structured response frameworks
-2. **Industry Examples**: Request relevant scenarios for your field
-3. **Follow-up Prep**: Prepare for common follow-up questions
-
-## 📋 Requirements
-
-| Component | Required? | Notes |
-|-----------|-----------|-------|
-| Node.js 18+ | ✅ Yes | [Download](https://nodejs.org/) |
-| Gemini API Key | ✅ Yes | [Free API Key](https://aistudio.google.com/app/apikey) |
-| SoX Audio | ⭕ Optional | For voice recording - `brew install sox` (Mac) |
-| Azure Speech | ⭕ Optional | For voice input - [Azure Portal](https://portal.azure.com/)
-
-**Note:** Tesseract OCR is bundled (no separate installation needed!)
-
-## 🚀 Advanced Usage
-
-### Session Memory
-The app remembers your interview context across multiple questions:
-
-## 🤝 Contributing
-
-**Contribute to make Vysper the ultimate interview companion, not a cheating tool!**
-
-### Priority Areas
-- **New Interview Skills** - Add specialized domains (Finance, Marketing, etc.)
-- **Language Support** - Expand beyond English for global users
-- **Platform Extensions** - Windows and Linux compatibility
-- **LLM Improvements** - Multiple LLM Model selections for the response
-- **UI/UX Improvements** - Enhanced interface and user experience
-
-### How to Contribute
-1. **Fork the repository**
-2. **Star the project** if you find it useful
-3. **Report issues** for bugs or feature requests
-4. **Submit pull requests** for improvements
-5. **Improve documentation** and add examples
-6. **Share your success stories**
-
-⭐ **Star this repo** if Vysper helped you ace your interviews or you vibed with it!
