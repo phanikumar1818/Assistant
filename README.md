@@ -20,7 +20,7 @@ This guide will get you up and running with Vysper in **under 5 minutes**.
 
 ```bash
 # Clone the repository (if you haven't)
-git clone <repository-url>
+git clone https://github.com/phanikumar1818/Assistant.git
 cd Vysper
 
 # Install all packages
