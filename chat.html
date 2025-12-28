@@ -1,0 +1,1705 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Transcription</title>
+    <link href="./src/styles/common.css" rel="stylesheet" />
+    <style>
+      @import url("https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css");
+
+      body {
+        background: transparent !important;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+      }
+
+      .chat-container {
+        width: 100%;
+        height: 100vh;
+        background: linear-gradient(
+          135deg,
+          rgba(0, 0, 0, 0.3) 0%,
+          rgba(20, 20, 20, 0.4) 100%
+        );
+        backdrop-filter: blur(25px);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 4px 25px rgba(0, 0, 0, 0.15);
+        display: flex;
+        flex-direction: column;
+        -webkit-app-region: drag;
+      }
+      .chat-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        -webkit-app-region: drag;
+        background: rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(10px);
+        cursor: move;
+        flex-shrink: 0;
+      }
+      .header-title {
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 14px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        pointer-events: none;
+      }
+      .recording-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ff4757;
+        animation: pulse 2s infinite;
+        display: none;
+        box-shadow: 0 0 10px rgba(255, 71, 87, 0.5);
+      }
+      @keyframes pulse {
+        0% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.7;
+          transform: scale(1.1);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+      .chat-messages {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-app-region: no-drag;
+        box-sizing: border-box;
+        /* Removed max-height restriction */
+      }
+      .message {
+        margin-bottom: 16px;
+        padding: 12px 16px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        border-left: 3px solid rgba(255, 255, 255, 0.2);
+        backdrop-filter: blur(5px);
+        word-wrap: break-word;
+        word-break: break-word;
+        /* Removed all height restrictions */
+      }
+      .message.transcription {
+        background: rgba(76, 175, 80, 0.15);
+        animation: fadeInSlide 0.1s ease-out;
+        position: relative;
+      }
+
+      .message.transcription::before {
+        position: absolute;
+        left: -8px;
+        top: 8px;
+        font-size: 12px;
+        color: white;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      @keyframes fadeInSlide {
+        from {
+          opacity: 0;
+          transform: translateX(-20px);
+          background: rgba(76, 175, 80, 0.3);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+          background: rgba(76, 175, 80, 0.15);
+        }
+      }
+      .message.system {
+        background: rgba(33, 150, 243, 0.1);
+      }
+      .message.error {
+        background: rgba(244, 67, 54, 0.1);
+      }
+      .message.user {
+        background: rgba(255, 152, 0, 0.1);
+      }
+      .message.assistant {
+        background: rgba(156, 39, 176, 0.1);
+        border-left: 3px solid #9c27b0;
+        /* Removed all height restrictions and overflow hidden */
+        display: block;
+      }
+      
+      .message.assistant .message-text {
+        /* Removed all height restrictions and overflow hidden */
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        word-break: break-word;
+        overflow-wrap: break-word;
+      }
+      
+      /* Ensure all content in assistant messages is fully visible */
+      .message.assistant *,
+      .message.assistant .bullet-point,
+      .message.assistant .numbered-point,
+      .message.assistant strong,
+      .message.assistant em,
+      .message.assistant code,
+      .message.assistant pre,
+      .message.assistant ul,
+      .message.assistant ol,
+      .message.assistant li,
+      .message.assistant h1,
+      .message.assistant h2,
+      .message.assistant h3,
+      .message.assistant h4,
+      .message.assistant h5,
+      .message.assistant h6,
+      .message.assistant p,
+      .message.assistant blockquote {
+        /* Remove all height restrictions */
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+      }
+      
+      /* Markdown formatting for assistant messages */
+      .message.assistant .bullet-point {
+        margin: 4px 0;
+        padding-left: 8px;
+        line-height: 1.4;
+        word-wrap: break-word;
+        word-break: break-word;
+        overflow-wrap: break-word;
+      }
+      
+      .message.assistant .numbered-point {
+        margin: 4px 0;
+        padding-left: 16px;
+        line-height: 1.4;
+        position: relative;
+        counter-increment: list-counter;
+        word-wrap: break-word;
+        word-break: break-word;
+        overflow-wrap: break-word;
+      }
+      
+      .message.assistant .numbered-point::before {
+        content: counter(list-counter) ". ";
+        position: absolute;
+        left: 0;
+        font-weight: 500;
+        color: rgba(156, 39, 176, 0.8);
+      }
+      
+      .message.assistant {
+        counter-reset: list-counter;
+      }
+      
+      .message.assistant strong {
+        font-weight: 600;
+        color: rgba(255, 255, 255, 1);
+      }
+      
+      .message.assistant em {
+        font-style: italic;
+        color: rgba(255, 255, 255, 0.9);
+      }
+      
+      .message.assistant code {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 11px;
+        color: #64ffda;
+        display: inline;
+      }
+      
+      /* Ensure code blocks are fully visible */
+      .message.assistant pre {
+        background: rgba(0, 0, 0, 0.4);
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 11px;
+        color: #64ffda;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        margin: 8px 0;
+      }
+      
+      .message.assistant pre code {
+        background: transparent;
+        padding: 0;
+        border-radius: 0;
+      }
+      
+      /* Ensure lists are fully visible */
+      .message.assistant ul,
+      .message.assistant ol {
+        margin: 8px 0;
+        padding-left: 20px;
+      }
+      
+      .message.assistant li {
+        margin: 4px 0;
+        line-height: 1.4;
+      }
+      
+      /* Ensure headings are fully visible */
+      .message.assistant h1,
+      .message.assistant h2,
+      .message.assistant h3,
+      .message.assistant h4,
+      .message.assistant h5,
+      .message.assistant h6 {
+        margin: 12px 0 8px 0;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 1);
+      }
+      
+      .message.assistant h1 { font-size: 16px; }
+      .message.assistant h2 { font-size: 15px; }
+      .message.assistant h3 { font-size: 14px; }
+      .message.assistant h4,
+      .message.assistant h5,
+      .message.assistant h6 { font-size: 13px; }
+      
+      /* Ensure paragraphs are fully visible */
+      .message.assistant p {
+        margin: 8px 0;
+      }
+      
+      /* Ensure blockquotes are fully visible */
+      .message.assistant blockquote {
+        border-left: 3px solid rgba(156, 39, 176, 0.5);
+        padding-left: 12px;
+        margin: 8px 0;
+        font-style: italic;
+        color: rgba(255, 255, 255, 0.8);
+      }
+      
+      /* Thinking indicator animation */
+      .thinking-dots {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      
+      .thinking-dots .dot {
+        opacity: 0.4;
+        animation: thinking 1.4s infinite ease-in-out;
+      }
+      
+      .thinking-dots .dot:nth-child(1) { animation-delay: 0s; }
+      .thinking-dots .dot:nth-child(2) { animation-delay: 0.2s; }
+      .thinking-dots .dot:nth-child(3) { animation-delay: 0.4s; }
+      
+      @keyframes thinking {
+        0%, 80%, 100% {
+          opacity: 0.4;
+          transform: scale(1);
+        }
+        40% {
+          opacity: 1;
+          transform: scale(1.2);
+        }
+      }
+      
+      .message.thinking {
+        animation: fadeIn 0.3s ease-out;
+      }
+      
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .message-time {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 11px;
+        margin-bottom: 4px;
+        font-weight: 500;
+      }
+      .message-text {
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 13px;
+        line-height: 1.4;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        word-wrap: break-word;
+        word-break: break-word;
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
+        max-width: 100%;
+        display: block;
+      }
+      .chat-input {
+        padding: 16px 20px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        -webkit-app-region: no-drag;
+        background: rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(10px);
+        flex-shrink: 0;
+      }
+      .input-container {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        -webkit-app-region: no-drag;
+      }
+      .input-field {
+        flex: 1;
+        background: transparent;
+        border: none;
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 13px;
+        outline: none;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+      }
+      .input-field::placeholder {
+        color: rgba(255, 255, 255, 0.5);
+      }
+      .send-button {
+        background: rgba(255, 255, 255, 0.15);
+        border: none;
+        border-radius: 6px;
+        padding: 6px 10px;
+        color: rgba(255, 255, 255, 0.9);
+        cursor: pointer;
+        transition: all 0.2s;
+        -webkit-app-region: no-drag;
+      }
+      .send-button:hover {
+        background: rgba(255, 255, 255, 0.25);
+        color: rgba(255, 255, 255, 1);
+      }
+      .status-message {
+        text-align: center;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 12px;
+        padding: 20px;
+        font-style: italic;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+      }
+      .error-message {
+        color: #ff4757;
+        font-size: 12px;
+        padding: 10px;
+        text-align: center;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+      }
+      .mic-button {
+        background: rgba(255, 255, 255, 0.15);
+        border: none;
+        border-radius: 6px;
+        padding: 6px 10px;
+        color: rgba(255, 255, 255, 0.9);
+        cursor: pointer;
+        transition: all 0.2s;
+        -webkit-app-region: no-drag;
+      }
+      .mic-button:hover {
+        background: rgba(255, 255, 255, 0.25);
+        color: rgba(255, 255, 255, 1);
+      }
+      .mic-button.recording {
+        background: rgba(255, 71, 87, 0.8);
+        color: white;
+        box-shadow: 0 0 15px rgba(255, 71, 87, 0.4);
+      }
+      .help-text {
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 11px;
+        text-align: center;
+        padding: 10px;
+        line-height: 1.4;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+      }
+      .interaction-indicator {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: rgba(255, 255, 255, 0.9);
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        pointer-events: none;
+        z-index: 1000;
+      }
+      .interaction-indicator.show {
+        opacity: 1;
+      }
+      .interaction-indicator.interactive {
+        background: rgba(76, 175, 80, 0.9);
+      }
+      .interaction-indicator.non-interactive {
+        background: rgba(244, 67, 54, 0.9);
+      }
+      .non-interactive .input-container {
+        pointer-events: none;
+        opacity: 0.5;
+      }
+      .non-interactive .mic-button {
+        pointer-events: none;
+        opacity: 0.5;
+      }
+      .non-interactive .send-button {
+        pointer-events: none;
+        opacity: 0.5;
+      }
+
+      /* Minimalist Listening Animation */
+      .listening-indicator {
+        display: none;
+        position: fixed;
+        top: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(203, 203, 203, 0.3);
+        border-radius: 20px;
+        padding: 8px 16px;
+        z-index: 1000;
+        pointer-events: none;
+      }
+
+      .listening-indicator.active {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        animation: fadeInUp 0.3s ease-out;
+      }
+
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+
+      .listening-wave {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .wave-bar {
+        width: 2px;
+        background: #4caf50;
+        border-radius: 1px;
+        animation: waveAnimation 1.2s infinite ease-in-out;
+      }
+
+      .wave-bar:nth-child(1) {
+        height: 8px;
+        animation-delay: 0s;
+      }
+      .wave-bar:nth-child(2) {
+        height: 12px;
+        animation-delay: 0.15s;
+      }
+      .wave-bar:nth-child(3) {
+        height: 16px;
+        animation-delay: 0.3s;
+      }
+      .wave-bar:nth-child(4) {
+        height: 12px;
+        animation-delay: 0.45s;
+      }
+      .wave-bar:nth-child(5) {
+        height: 8px;
+        animation-delay: 0.6s;
+      }
+
+      @keyframes waveAnimation {
+        0%, 100% {
+          transform: scaleY(0.3);
+          opacity: 0.6;
+        }
+        50% {
+          transform: scaleY(1);
+          opacity: 1;
+        }
+      }
+
+      .listening-text {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.5px;
+      }
+
+      .listening-duration {
+        color: rgba(76, 175, 80, 0.8);
+        font-size: 10px;
+        font-family: monospace;
+        margin-left: 4px;
+      }
+
+      /* Live Transcript Box - Shows during voice recording */
+      .live-transcript-box {
+        position: fixed;
+        bottom: 80px;
+        left: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(20px);
+        border: 2px solid rgba(76, 175, 80, 0.5);
+        border-radius: 12px;
+        padding: 16px;
+        z-index: 999;
+        display: none;
+        animation: slideUpFade 0.3s ease-out;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      }
+
+      .live-transcript-box.active {
+        display: block;
+      }
+
+      .live-transcript-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .live-transcript-header .mic-icon {
+        color: #ff4757;
+        animation: pulse 1.5s infinite;
+      }
+
+      .live-transcript-header .title {
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .live-transcript-header .duration {
+        margin-left: auto;
+        color: rgba(76, 175, 80, 0.9);
+        font-size: 11px;
+        font-family: monospace;
+      }
+
+      .live-transcript-content {
+        min-height: 40px;
+        max-height: 120px;
+        overflow-y: auto;
+      }
+
+      .live-transcript-interim {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 14px;
+        font-style: italic;
+        line-height: 1.5;
+      }
+
+      .live-transcript-final {
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 14px;
+        line-height: 1.5;
+        margin-bottom: 8px;
+      }
+
+      .live-transcript-hint {
+        margin-top: 12px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 11px;
+        text-align: center;
+      }
+
+      .live-transcript-hint kbd {
+        background: rgba(255, 255, 255, 0.1);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: monospace;
+        margin: 0 2px;
+      }
+
+      /* Interim text overlay - legacy, kept for compatibility */
+      .interim-overlay {
+        position: fixed;
+        bottom: 80px;
+        left: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.028);
+        backdrop-filter: blur(15px);
+        border: 1px solid rgba(76, 175, 80, 0.3);
+        border-radius: 8px;
+        padding: 12px;
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 12px;
+        font-style: italic;
+        z-index: 998;
+        pointer-events: none;
+        display: none;
+        animation: slideUpFade 0.3s ease-out;
+      }
+
+      .interim-overlay.active {
+        display: none; /* Hide old overlay, use new live transcript box */
+      }
+
+      @keyframes slideUpFade {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* Screenshot preview banner */
+      .screenshot-banner {
+        display: none;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%);
+        border: 1px solid rgba(168, 85, 247, 0.4);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 10px 20px;
+        -webkit-app-region: no-drag;
+        animation: slideDown 0.3s ease-out;
+      }
+
+      .screenshot-banner.active {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      @keyframes slideDown {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .screenshot-preview {
+        width: 60px;
+        height: 40px;
+        border-radius: 6px;
+        border: 2px solid rgba(168, 85, 247, 0.5);
+        object-fit: cover;
+        flex-shrink: 0;
+      }
+
+      .screenshot-info {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .screenshot-title {
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 12px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .screenshot-title i {
+        color: #a855f7;
+      }
+
+      .screenshot-hint {
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 11px;
+      }
+
+      .screenshot-dismiss {
+        background: rgba(255, 255, 255, 0.1);
+        border: none;
+        border-radius: 4px;
+        padding: 6px 10px;
+        color: rgba(255, 255, 255, 0.8);
+        cursor: pointer;
+        font-size: 11px;
+        transition: all 0.2s;
+        -webkit-app-region: no-drag;
+      }
+
+      .screenshot-dismiss:hover {
+        background: rgba(255, 255, 255, 0.2);
+        color: rgba(255, 255, 255, 1);
+      }
+
+      /* Pulsing indicator for screenshot mode */
+      .screenshot-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #a855f7;
+        animation: screenshotPulse 1.5s infinite;
+        display: none;
+      }
+
+      .screenshot-indicator.active {
+        display: inline-block;
+      }
+
+      @keyframes screenshotPulse {
+        0%, 100% {
+          opacity: 1;
+          box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.5);
+        }
+        50% {
+          opacity: 0.8;
+          box-shadow: 0 0 0 6px rgba(168, 85, 247, 0);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="chat-container" id="chatContainer">
+      <div class="chat-header">
+        <div class="header-title">
+          <i class="fas fa-microphone"></i>
+          Live Transcription & Chat
+          <div class="recording-indicator" id="recordingIndicator"></div>
+          <div class="screenshot-indicator" id="screenshotIndicator"></div>
+        </div>
+      </div>
+
+      <!-- Screenshot Preview Banner -->
+      <div class="screenshot-banner" id="screenshotBanner">
+        <img class="screenshot-preview" id="screenshotPreview" src="" alt="Screenshot preview">
+        <div class="screenshot-info">
+          <div class="screenshot-title">
+            <i class="fas fa-image"></i>
+            Screenshot Ready for AI
+          </div>
+          <div class="screenshot-hint">Type your question about this screenshot and press Enter</div>
+        </div>
+        <button class="screenshot-dismiss" id="screenshotDismiss">
+          <i class="fas fa-times"></i> Dismiss
+        </button>
+      </div>
+
+      <!-- Listening Indicator (legacy, minimal) -->
+      <div class="listening-indicator" id="listeningIndicator">
+        <div class="listening-wave">
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+        </div>
+        <span class="listening-text">Listening</span>
+        <span class="listening-duration" id="listeningDuration">0s</span>
+      </div>
+
+      <!-- Live Transcript Box - Shows while recording -->
+      <div class="live-transcript-box" id="liveTranscriptBox">
+        <div class="live-transcript-header">
+          <i class="fas fa-microphone mic-icon"></i>
+          <span class="title">Listening...</span>
+          <span class="duration" id="transcriptDuration">0s</span>
+        </div>
+        <div class="live-transcript-content">
+          <div class="live-transcript-final" id="transcriptFinal"></div>
+          <div class="live-transcript-interim" id="transcriptInterim"></div>
+        </div>
+        <div class="live-transcript-hint">
+          Click <kbd>🎤</kbd> to stop • Transcript will appear in text field • Press <kbd>Enter</kbd> to send
+        </div>
+      </div>
+
+      <!-- Interim Text Overlay (legacy) -->
+      <div class="interim-overlay" id="interimOverlay"></div>
+
+      <div class="chat-messages" id="chatMessages"></div>
+
+      <div class="chat-input">
+        <div class="input-container">
+          <input
+            type="text"
+            class="input-field"
+            placeholder="Type a message or transcription..."
+            id="messageInput"
+          />
+          <button class="mic-button" id="micButton">
+            <i class="fas fa-microphone"></i>
+          </button>
+          <button class="send-button" id="sendButton">
+            <i class="fas fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+    <script src="lib/markdown.js"></script> 
+    <script>
+      // Use electronAPI from preload script instead of direct require
+      const whysperAPI = window.electronAPI;
+
+      const chatMessages = document.getElementById('chatMessages');
+      const recordingIndicator = document.getElementById('recordingIndicator');
+      const messageInput = document.getElementById('messageInput');
+      const sendButton = document.getElementById('sendButton');
+      const micButton = document.getElementById('micButton');
+      const chatContainer = document.getElementById('chatContainer');
+      const listeningIndicator = document.getElementById('listeningIndicator');
+      const listeningDuration = document.getElementById('listeningDuration');
+      const interimOverlay = document.getElementById('interimOverlay');
+      const screenshotBanner = document.getElementById('screenshotBanner');
+      const screenshotPreview = document.getElementById('screenshotPreview');
+      const screenshotIndicator = document.getElementById('screenshotIndicator');
+      const screenshotDismiss = document.getElementById('screenshotDismiss');
+      
+      // Live transcript elements
+      const liveTranscriptBox = document.getElementById('liveTranscriptBox');
+      const transcriptDuration = document.getElementById('transcriptDuration');
+      const transcriptFinal = document.getElementById('transcriptFinal');
+      const transcriptInterim = document.getElementById('transcriptInterim');
+
+      let isRecording = false;
+      let isInteractive = true;
+      let listeningStartTime = null;
+      let listeningTimer = null;
+      let hasPendingScreenshot = false;
+      
+      // Accumulated transcript during recording session
+      let accumulatedTranscript = '';
+
+      // MediaRecorder-based Speech Recognition using Gemini API
+      // This is more reliable than Web Speech API for Electron apps
+      class AudioRecognitionManager {
+        constructor() {
+          console.log('🎤 Initializing AudioRecognitionManager...');
+          this.mediaRecorder = null;
+          this.audioChunks = [];
+          this.stream = null;
+          this.isListening = false;
+          this.isSupported = true; // MediaRecorder is always supported in Electron
+          
+          // Check for MediaRecorder support
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            console.error('🎤 MediaDevices API not available');
+            this.isSupported = false;
+          }
+          
+          console.log('🎤 AudioRecognitionManager initialized, isSupported:', this.isSupported);
+        }
+
+        async start() {
+          console.log('🎤 start() called');
+          
+          if (this.isListening) {
+            console.warn('🎤 Already listening');
+            return false;
+          }
+          
+          try {
+            // Request microphone access
+            console.log('🎤 Requesting microphone access...');
+            this.stream = await navigator.mediaDevices.getUserMedia({ 
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 16000
+              } 
+            });
+            
+            console.log('🎤 Microphone access granted');
+            
+            // Clear previous chunks
+            this.audioChunks = [];
+            
+            // Create MediaRecorder with appropriate format
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+              ? 'audio/webm;codecs=opus' 
+              : 'audio/webm';
+            
+            this.mediaRecorder = new MediaRecorder(this.stream, { mimeType });
+            console.log('🎤 MediaRecorder created with mimeType:', mimeType);
+            
+            this.mediaRecorder.ondataavailable = (event) => {
+              if (event.data.size > 0) {
+                this.audioChunks.push(event.data);
+                console.log('🎤 Audio chunk received, size:', event.data.size);
+              }
+            };
+            
+            this.mediaRecorder.onstart = () => {
+              console.log('🎤 MediaRecorder STARTED');
+              this.isListening = true;
+              accumulatedTranscript = '';
+              if (whysperAPI && whysperAPI.sendSpeechStatus) {
+                whysperAPI.sendSpeechStatus('Recording audio...');
+              }
+              handleRecordingStarted();
+              updateLiveTranscript('', 'Recording... Speak now');
+            };
+            
+            this.mediaRecorder.onstop = async () => {
+              console.log('🎤 MediaRecorder STOPPED, chunks:', this.audioChunks.length);
+              this.isListening = false;
+              
+              // Process the recorded audio BEFORE hiding the UI
+              if (this.audioChunks.length > 0) {
+                updateLiveTranscript('', 'Processing speech...');
+                try {
+                  await this.processAudio();
+                  console.log('🎤 processAudio completed, accumulatedTranscript:', accumulatedTranscript);
+                } catch (err) {
+                  console.error('🎤 processAudio error:', err);
+                  addMessage('Audio processing failed: ' + err.message, 'error');
+                }
+              } else {
+                addMessage('No audio recorded. Please try again.', 'error');
+              }
+              
+              // Now hide the UI after transcription is complete
+              handleRecordingStopped();
+            };
+            
+            this.mediaRecorder.onerror = (event) => {
+              console.error('🎤 MediaRecorder error:', event.error);
+              addMessage('🎤 Recording error: ' + (event.error?.message || 'Unknown error'), 'error');
+              this.isListening = false;
+              handleRecordingStopped();
+            };
+            
+            // Start recording - collect data every second
+            this.mediaRecorder.start(1000);
+            return true;
+            
+          } catch (err) {
+            console.error('🎤 Failed to start recording:', err);
+            let errorMsg = 'Failed to access microphone';
+            
+            if (err.name === 'NotAllowedError') {
+              errorMsg = 'Microphone permission denied. Please allow access in your system settings.';
+            } else if (err.name === 'NotFoundError') {
+              errorMsg = 'No microphone found. Please connect a microphone.';
+            } else if (err.name === 'NotReadableError') {
+              errorMsg = 'Microphone is busy or unavailable.';
+            }
+            
+            addMessage('🎤 ' + errorMsg, 'error');
+            return false;
+          }
+        }
+
+        stop() {
+          console.log('🎤 stop() called, isListening:', this.isListening);
+          
+          if (!this.isListening || !this.mediaRecorder) {
+            console.log('🎤 Not listening, nothing to stop');
+            return false;
+          }
+          
+          try {
+            // Stop recording
+            if (this.mediaRecorder.state !== 'inactive') {
+              this.mediaRecorder.stop();
+            }
+            
+            // Stop all tracks
+            if (this.stream) {
+              this.stream.getTracks().forEach(track => track.stop());
+              this.stream = null;
+            }
+            
+            return true;
+          } catch (err) {
+            console.error('🎤 Failed to stop recording:', err);
+            return false;
+          }
+        }
+
+        async processAudio() {
+          try {
+            console.log('🎤 Processing audio, chunks:', this.audioChunks.length);
+            
+            // Create blob from chunks
+            const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+            console.log('🎤 Audio blob size:', audioBlob.size, 'bytes');
+            
+            if (audioBlob.size < 500) {
+              addMessage('Recording too short. Please speak for at least 1-2 seconds.', 'error');
+              return;
+            }
+            
+            // Convert to base64
+            console.log('🎤 Converting audio to base64...');
+            const base64Audio = await this.blobToBase64(audioBlob);
+            console.log('🎤 Audio converted to base64, length:', base64Audio.length);
+            
+            // Send to main process for transcription via Gemini
+            if (whysperAPI && whysperAPI.sendAudioForTranscription) {
+              updateLiveTranscript('', 'Transcribing with AI...');
+              addMessage('🎤 Sending audio to AI for transcription...', 'system');
+              
+              console.log('🎤 Calling sendAudioForTranscription...');
+              const result = await whysperAPI.sendAudioForTranscription(base64Audio);
+              console.log('🎤 Transcription result:', JSON.stringify(result));
+              
+              if (result && result.success && result.transcript) {
+                console.log('🎤 Transcription successful:', result.transcript);
+                accumulatedTranscript = result.transcript;
+                updateLiveTranscript(result.transcript, '');
+                addMessage('✅ Transcription: "' + result.transcript + '"', 'transcription');
+              } else if (result && result.error) {
+                console.error('🎤 Transcription error from API:', result.error);
+                addMessage('❌ Transcription error: ' + result.error, 'error');
+              } else {
+                console.error('🎤 Unexpected result format:', result);
+                addMessage('❌ Unexpected transcription result', 'error');
+              }
+            } else {
+              console.error('🎤 sendAudioForTranscription not available!');
+              addMessage('Audio recorded (' + Math.round(audioBlob.size/1024) + 'KB). Transcription service not available.', 'system');
+            }
+            
+          } catch (err) {
+            console.error('🎤 Audio processing error:', err);
+            addMessage('❌ Failed to process audio: ' + err.message, 'error');
+          }
+        }
+
+        blobToBase64(blob) {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              // Remove data URL prefix
+              const base64 = reader.result.split(',')[1];
+              resolve(base64);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+
+      console.log('🎤 Creating AudioRecognitionManager instance...');
+      const audioRecognition = new AudioRecognitionManager();
+      
+      // Alias for backward compatibility
+      const webSpeech = audioRecognition;
+      
+      console.log('🎤 AudioRecognitionManager created, isSupported:', audioRecognition.isSupported);
+
+      // Live Transcript Functions
+      function showLiveTranscriptBox() {
+        if (liveTranscriptBox) {
+          liveTranscriptBox.classList.add('active');
+          // Clear previous content
+          if (transcriptFinal) transcriptFinal.textContent = '';
+          if (transcriptInterim) transcriptInterim.textContent = 'Listening for speech...';
+          
+          // Start duration timer
+          listeningStartTime = Date.now();
+          listeningTimer = setInterval(() => {
+            if (listeningStartTime && transcriptDuration) {
+              const elapsed = Math.floor((Date.now() - listeningStartTime) / 1000);
+              transcriptDuration.textContent = `${elapsed}s`;
+            }
+          }, 1000);
+        }
+      }
+
+      function hideLiveTranscriptBox() {
+        if (liveTranscriptBox) {
+          liveTranscriptBox.classList.remove('active');
+        }
+        // Clear timer
+        if (listeningTimer) {
+          clearInterval(listeningTimer);
+          listeningTimer = null;
+        }
+        listeningStartTime = null;
+      }
+
+      function updateLiveTranscript(finalText, interimText) {
+        if (transcriptFinal) {
+          transcriptFinal.textContent = finalText || '';
+        }
+        if (transcriptInterim) {
+          transcriptInterim.textContent = interimText || '';
+        }
+      }
+
+      // Basic message function with markdown support for assistant messages
+      function addMessage(text, type = 'user') {
+        if (!chatMessages) {
+          console.error('Chat messages element not found!');
+          return;
+        }
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'message-time';
+        timeDiv.textContent = new Date().toLocaleTimeString();
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'message-text';
+        
+        // Format assistant messages as markdown
+        if (type === 'assistant') {
+          textDiv.innerHTML = formatMarkdown(text);
+        } else {
+          textDiv.textContent = text;
+        }
+
+        messageDiv.appendChild(timeDiv);
+        messageDiv.appendChild(textDiv);
+
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+
+      // Markdown formatter using markdown.js library
+      function formatMarkdown(text) {
+        if (!text) return '';
+        
+        try {
+          // Use the markdown.js library for proper markdown parsing
+          if (typeof markdown !== 'undefined' && markdown.toHTML) {
+            return markdown.toHTML(text);
+          } else {
+            console.warn('Markdown library not loaded, falling back to basic formatting');
+            // Fallback to basic formatting if library fails to load
+            return text
+              .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+              .replace(/\*(.+?)\*/g, '<em>$1</em>')
+              .replace(/`(.+?)`/g, '<code>$1</code>')
+              .replace(/\n/g, '<br>');
+          }
+        } catch (error) {
+          console.error('Markdown parsing failed:', error);
+          // Fallback to basic HTML escaping
+          return text.replace(/\n/g, '<br>');
+        }
+      }
+
+      // Show thinking indicator
+      function showThinkingIndicator() {
+        const thinkingDiv = document.createElement('div');
+        thinkingDiv.className = 'message assistant thinking';
+        thinkingDiv.id = 'thinking-indicator';
+
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'message-time';
+        timeDiv.textContent = new Date().toLocaleTimeString();
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'message-text thinking-dots';
+        textDiv.innerHTML = '<span class="dot">•</span><span class="dot">•</span><span class="dot">•</span>';
+
+        thinkingDiv.appendChild(timeDiv);
+        thinkingDiv.appendChild(textDiv);
+
+        chatMessages.appendChild(thinkingDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+
+      // Hide thinking indicator
+      function hideThinkingIndicator() {
+        const thinkingIndicator = document.getElementById('thinking-indicator');
+        if (thinkingIndicator) {
+          thinkingIndicator.remove();
+        }
+      }
+
+      // Minimalist Listening Animation Functions
+      function showListeningAnimation() {
+        if (listeningIndicator) {
+          listeningIndicator.classList.add('active');
+
+          // Start timer
+          listeningStartTime = Date.now();
+          listeningTimer = setInterval(() => {
+            if (listeningStartTime && listeningDuration) {
+              const elapsed = Math.floor((Date.now() - listeningStartTime) / 1000);
+              listeningDuration.textContent = `${elapsed}s`;
+            }
+          }, 1000);
+        }
+      }
+
+      function hideListeningAnimation() {
+        if (listeningIndicator) {
+          listeningIndicator.classList.remove('active');
+        }
+
+        // Hide interim overlay
+        if (interimOverlay) {
+          interimOverlay.classList.remove('active');
+        }
+
+        // Clear timer
+        if (listeningTimer) {
+          clearInterval(listeningTimer);
+          listeningTimer = null;
+        }
+
+        listeningStartTime = null;
+      }
+
+      function showInterimText(text) {
+        if (!interimOverlay) return;
+
+        if (text && text.trim()) {
+          interimOverlay.textContent = text;
+          interimOverlay.classList.add('active');
+        } else {
+          interimOverlay.classList.remove('active');
+        }
+      }
+
+      // Recording Event Handlers
+      function handleRecordingStarted() {
+        isRecording = true;
+
+        if (recordingIndicator) {
+          recordingIndicator.style.display = 'block';
+        }
+        if (micButton) {
+          micButton.classList.add('recording');
+        }
+
+        // Show the live transcript box
+        showLiveTranscriptBox();
+        showListeningAnimation();
+      }
+
+      function handleRecordingStopped() {
+        isRecording = false;
+
+        if (recordingIndicator) {
+          recordingIndicator.style.display = 'none';
+        }
+        if (micButton) {
+          micButton.classList.remove('recording');
+        }
+
+        // Hide the live transcript box
+        hideLiveTranscriptBox();
+        hideListeningAnimation();
+        
+        // Populate the input field with the accumulated transcript
+        if (accumulatedTranscript && accumulatedTranscript.trim()) {
+          const cleanTranscript = accumulatedTranscript.trim();
+          if (messageInput) {
+            // Append to existing text if any, otherwise set new
+            const existingText = messageInput.value.trim();
+            if (existingText) {
+              messageInput.value = existingText + ' ' + cleanTranscript;
+            } else {
+              messageInput.value = cleanTranscript;
+            }
+            // Focus the input field so user can press Enter
+            messageInput.focus();
+          }
+          addMessage('Voice input ready - press Enter to send, or edit first', 'system');
+        } else {
+          addMessage('No speech detected. Try again.', 'system');
+        }
+        
+        // Reset accumulated transcript for next session
+        accumulatedTranscript = '';
+      }
+
+      function handleTranscription(text) {
+        // This function is now only called from main process for backward compatibility
+        // The new flow is: speak -> accumulated in live box -> populate text field -> user presses Enter
+        if (text && typeof text === 'string' && text.trim().length > 0) {
+          console.log('Received transcription from main process:', text.trim());
+          // Populate text field instead of showing message
+          if (messageInput) {
+            const existingText = messageInput.value.trim();
+            if (existingText) {
+              messageInput.value = existingText + ' ' + text.trim();
+            } else {
+              messageInput.value = text.trim();
+            }
+            messageInput.focus();
+          }
+        } else {
+          console.warn('Invalid or empty transcription text - ignoring:', text);
+        }
+      }
+
+      // Basic IPC Event Listeners - simplified
+      
+      // Listen for transcription events
+      if (whysperAPI) {
+        whysperAPI.onTranscriptionReceived((event, data) => {
+          if (data && data.text) {
+            handleTranscription(data.text);
+          } else {
+            console.warn('Invalid transcription data received:', data);
+          }
+        });
+
+        whysperAPI.onInterimTranscription((event, data) => {
+          if (data && data.text) {
+            showInterimText(data.text);
+          }
+        });
+
+        // Listen for speech status
+        whysperAPI.onSpeechStatus((event, data) => {
+          if (data && data.status) {
+            addMessage(data.status, 'system');
+
+            if (data.status.includes('started') || data.status.includes('Recording')) {
+              handleRecordingStarted();
+            } else if (data.status.includes('stopped') || data.status.includes('ended')) {
+              handleRecordingStopped();
+            }
+          }
+        });
+
+        // Listen for speech errors
+        whysperAPI.onSpeechError((event, data) => {
+          if (data && data.error) {
+            addMessage(`Error in recognizing speech`, 'error');
+            handleRecordingStopped();
+          }
+        });
+
+        // Listen for other events
+        whysperAPI.onRecordingStarted(() => {
+          handleRecordingStarted();
+        });
+
+        whysperAPI.onRecordingStopped(() => {
+          handleRecordingStopped();
+        });
+
+        whysperAPI.onSessionCleared(() => {
+          addMessage('Session memory has been cleared', 'system');
+        });
+
+        whysperAPI.onTranscriptionLlmResponse((event, data) => {
+          if (data && data.response) {
+            // Hide thinking indicator
+            hideThinkingIndicator();
+            
+            // Add assistant response with formatting
+            addMessage(data.response, 'assistant');
+          }
+        });
+
+        // Screenshot for AI events
+        whysperAPI.onScreenshotCaptured(async (event, data) => {
+          if (data && data.hasPendingScreenshot) {
+            hasPendingScreenshot = true;
+            showScreenshotBanner();
+            addMessage('📸 Screenshot captured! Type your question about this screenshot.', 'system');
+          }
+        });
+
+        whysperAPI.onScreenshotProcessed((event, data) => {
+          if (data && !data.hasPendingScreenshot) {
+            hasPendingScreenshot = false;
+            hideScreenshotBanner();
+          }
+        });
+
+        whysperAPI.onScreenshotError((event, data) => {
+          if (data && data.error) {
+            addMessage(`Screenshot error: ${data.error}`, 'error');
+            hasPendingScreenshot = false;
+            hideScreenshotBanner();
+          }
+        });
+      }
+
+      // UI Event Listeners
+      if (micButton) {
+        micButton.addEventListener('click', async () => {
+          console.log('🎤 Mic button clicked! isRecording:', isRecording, 'isInteractive:', isInteractive);
+          
+          if (!isInteractive) {
+            addMessage('Window is in non-interactive mode. Press Alt+A to enable interaction.', 'error');
+            return;
+          }
+
+          try {
+            if (isRecording) {
+              console.log('🎤 Stopping recording...');
+              // Stop recording
+              if (audioRecognition) {
+                const stopped = audioRecognition.stop();
+                console.log('🎤 audioRecognition.stop() returned:', stopped);
+              }
+            } else {
+              console.log('🎤 Starting recording...');
+              // First show the UI feedback
+              addMessage('🎤 Starting voice recognition...', 'system');
+              
+              // Start audio recording
+              if (audioRecognition) {
+                console.log('🎤 audioRecognition exists, isSupported:', audioRecognition.isSupported);
+                
+                if (!audioRecognition.isSupported) {
+                  addMessage('⚠️ Voice recognition not available. Check microphone permissions.', 'error');
+                  return;
+                }
+                
+                // Await the async start method
+                const started = await audioRecognition.start();
+                console.log('🎤 audioRecognition.start() returned:', started);
+                
+                if (!started) {
+                  addMessage('⚠️ Failed to start recording. Check microphone permissions.', 'error');
+                }
+              } else {
+                console.error('🎤 audioRecognition is not defined!');
+                addMessage('⚠️ Speech recognition not initialized.', 'error');
+              }
+            }
+          } catch (error) {
+            console.error('🎤 Speech recognition error:', error);
+            addMessage(`⚠️ Speech error: ${error.message}`, 'error');
+          }
+        });
+      } else {
+        console.error('🎤 micButton element not found!');
+      }
+
+      if (sendButton) {
+        sendButton.addEventListener('click', async () => {
+          const text = messageInput.value.trim();
+          if (text) {
+            addMessage(text, 'user');
+            messageInput.value = '';
+            
+            // Show thinking indicator after user message
+            setTimeout(() => {
+              showThinkingIndicator();
+            }, 300);
+            
+            // Send to main process for session memory storage and LLM processing
+            try {
+              if (whysperAPI && whysperAPI.sendChatMessage) {
+                await whysperAPI.sendChatMessage(text);
+              }
+            } catch (error) {
+              console.error('Failed to send chat message to main process:', error);
+            }
+          }
+        });
+      }
+
+      if (messageInput) {
+        messageInput.addEventListener('keypress', async (e) => {
+          if (e.key === 'Enter') {
+            const text = messageInput.value.trim();
+            if (text) {
+              addMessage(text, 'user');
+              messageInput.value = '';
+              
+              // Show thinking indicator after user message
+              setTimeout(() => {
+                showThinkingIndicator();
+              }, 300);
+              
+              // Send to main process for session memory storage and LLM processing
+              try {
+                if (whysperAPI && whysperAPI.sendChatMessage) {
+                  await whysperAPI.sendChatMessage(text);
+                }
+              } catch (error) {
+                console.error('Failed to send chat message to main process:', error);
+              }
+            }
+          }
+        });
+      }
+
+      // Screenshot banner functions
+      async function showScreenshotBanner() {
+        if (!screenshotBanner || !screenshotIndicator) return;
+        
+        // Try to load the screenshot preview
+        try {
+          if (whysperAPI && whysperAPI.getPendingScreenshotPreview) {
+            const preview = await whysperAPI.getPendingScreenshotPreview();
+            if (preview && preview.hasScreenshot && preview.imageData) {
+              screenshotPreview.src = `data:${preview.imageData.mimeType};base64,${preview.imageData.base64}`;
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load screenshot preview:', error);
+        }
+        
+        screenshotBanner.classList.add('active');
+        screenshotIndicator.classList.add('active');
+        
+        // Update input placeholder
+        if (messageInput) {
+          messageInput.placeholder = 'Ask about this screenshot...';
+        }
+      }
+
+      function hideScreenshotBanner() {
+        if (screenshotBanner) {
+          screenshotBanner.classList.remove('active');
+        }
+        if (screenshotIndicator) {
+          screenshotIndicator.classList.remove('active');
+        }
+        if (screenshotPreview) {
+          screenshotPreview.src = '';
+        }
+        
+        // Reset input placeholder
+        if (messageInput) {
+          messageInput.placeholder = 'Type a message or transcription...';
+        }
+      }
+
+      // Screenshot dismiss button handler
+      if (screenshotDismiss) {
+        screenshotDismiss.addEventListener('click', async () => {
+          try {
+            if (whysperAPI && whysperAPI.clearPendingScreenshot) {
+              await whysperAPI.clearPendingScreenshot();
+            }
+            hasPendingScreenshot = false;
+            hideScreenshotBanner();
+            addMessage('Screenshot dismissed.', 'system');
+          } catch (error) {
+            console.error('Failed to clear screenshot:', error);
+          }
+        });
+      }
+
+      // Check for pending screenshot on load
+      async function checkPendingScreenshot() {
+        try {
+          if (whysperAPI && whysperAPI.hasPendingScreenshot) {
+            const result = await whysperAPI.hasPendingScreenshot();
+            if (result && result.hasPendingScreenshot) {
+              hasPendingScreenshot = true;
+              showScreenshotBanner();
+            }
+          }
+        } catch (error) {
+          console.error('Failed to check pending screenshot:', error);
+        }
+      }
+
+      // Global keyboard shortcuts
+      document.addEventListener('keydown', (e) => {
+        if (e.altKey && e.key === 'r') {
+          e.preventDefault();
+          micButton.click();
+        }
+      });
+
+      // Listen for toggle-speech-recognition from main process (Alt+R global shortcut)
+      if (whysperAPI && whysperAPI.onToggleSpeechRecognition) {
+        whysperAPI.onToggleSpeechRecognition(async () => {
+          console.log('Toggle speech recognition received from main process');
+          try {
+            if (isRecording) {
+              console.log('🎤 Stopping via global shortcut...');
+              if (audioRecognition && audioRecognition.stop) {
+                audioRecognition.stop();
+              }
+            } else {
+              console.log('🎤 Starting via global shortcut...');
+              if (audioRecognition && audioRecognition.start) {
+                const started = await audioRecognition.start();
+                console.log('🎤 Started via global shortcut:', started);
+                if (!started) {
+                  addMessage('⚠️ Failed to start recording. Check microphone.', 'error');
+                }
+              }
+            }
+          } catch (error) {
+            console.error('🎤 Global shortcut error:', error);
+            addMessage(`⚠️ Error: ${error.message}`, 'error');
+          }
+        });
+      }
+
+      // Initialize
+      addMessage('Voice assistant ready. Press the mic button or Alt+R to start speaking.', 'system');
+      
+      // Check for pending screenshot on window load
+      checkPendingScreenshot();
+      
+      // Debug: Press F12 to toggle DevTools
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'F12') {
+          e.preventDefault();
+          // Try to open DevTools via Electron
+          if (window.require) {
+            try {
+              const { remote } = window.require('electron');
+              remote.getCurrentWindow().webContents.toggleDevTools();
+            } catch (err) {
+              console.log('DevTools: Cannot open programmatically');
+            }
+          }
+        }
+      });
+      
+      // Log initialization status
+      console.log('=== Chat Window Initialized ===');
+      console.log('Web Speech API supported:', webSpeech.isSupported);
+      console.log('whysperAPI available:', !!whysperAPI);
+      console.log('micButton found:', !!micButton);
+      console.log('messageInput found:', !!messageInput);
+    </script>
+  </body>
+</html>
