@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,7 +12,8 @@
     <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
     <style>
         body {
-            background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(20, 20, 20, 0.5) 100%);;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(20, 20, 20, 0.5) 100%);
+            ;
             -webkit-app-region: no-drag;
             color: white;
             margin: 0;
@@ -20,49 +22,83 @@
             height: 100vh;
             width: 100vw;
         }
+
         .content-area {
             -webkit-app-region: no-drag;
         }
+
         .markdown-content {
             line-height: 1.6;
             color: white;
             font-size: 0.875rem;
         }
-        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3 {
             margin-top: 1.2rem;
             margin-bottom: 0.8rem;
             font-weight: bold;
             color: white;
         }
-        .markdown-content h1 { font-size: 1.2rem; }
-        .markdown-content h2 { font-size: 1.1rem; }
-        .markdown-content h3 { font-size: 1rem; }
-        .markdown-content p { margin-bottom: 0.8rem; color: white; font-size: 0.875rem; }
-        .markdown-content ul, .markdown-content ol { margin-bottom: 0.8rem; padding-left: 1.2rem; font-size: 0.875rem; }
-        .markdown-content li { margin-bottom: 0.4rem; color: white; font-size: 0.875rem; }
-        .markdown-content code { 
-            background-color: rgba(0, 0, 0, 0.4); 
-            padding: 0.2rem 0.4rem; 
-            border-radius: 0.25rem; 
+
+        .markdown-content h1 {
+            font-size: 1.2rem;
+        }
+
+        .markdown-content h2 {
+            font-size: 1.1rem;
+        }
+
+        .markdown-content h3 {
+            font-size: 1rem;
+        }
+
+        .markdown-content p {
+            margin-bottom: 0.8rem;
+            color: white;
+            font-size: 0.875rem;
+        }
+
+        .markdown-content ul,
+        .markdown-content ol {
+            margin-bottom: 0.8rem;
+            padding-left: 1.2rem;
+            font-size: 0.875rem;
+        }
+
+        .markdown-content li {
+            margin-bottom: 0.4rem;
+            color: white;
+            font-size: 0.875rem;
+        }
+
+        .markdown-content code {
+            background-color: rgba(0, 0, 0, 0.4);
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
             font-family: 'Courier New', monospace;
             color: #e5e7eb;
         }
-        .markdown-content pre { 
-            background-color: rgba(0, 0, 0, 0.4); 
-            padding: 1rem; 
-            border-radius: 0.5rem; 
+
+        .markdown-content pre {
+            background-color: rgba(0, 0, 0, 0.4);
+            padding: 1rem;
+            border-radius: 0.5rem;
             margin: 1rem 0;
             overflow-x: auto;
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
-        .markdown-content pre code { 
-            background-color: transparent; 
-            padding: 0; 
+
+        .markdown-content pre code {
+            background-color: transparent;
+            padding: 0;
             color: #e5e7eb;
         }
-        .markdown-content blockquote { 
-            border-left: 4px solid #6b7280; 
-            padding-left: 1rem; 
+
+        .markdown-content blockquote {
+            border-left: 4px solid #6b7280;
+            padding-left: 1rem;
             margin: 1rem 0;
             font-style: italic;
             color: #d1d5db;
@@ -89,11 +125,13 @@
         }
 
         /* Panel improvements with proper scrolling */
-        .text-panel, .code-panel {
+        .text-panel,
+        .code-panel {
             background: transparent;
             overflow: hidden;
             position: relative;
-            min-height: 0; /* Important for grid items */
+            min-height: 0;
+            /* Important for grid items */
         }
 
         .panel-content {
@@ -128,15 +166,15 @@
         }
 
         /* Hide scrollbars completely while maintaining scrollability */
-        .panel-content::-webkit-scrollbar, 
+        .panel-content::-webkit-scrollbar,
         .full-content-inner::-webkit-scrollbar {
             width: 0px;
             height: 0px;
             display: none;
         }
-        
+
         /* For Firefox and other browsers */
-        .panel-content, 
+        .panel-content,
         .full-content-inner {
             scrollbar-width: none;
             -ms-overflow-style: none;
@@ -144,11 +182,12 @@
 
         /* Code block styling */
         .code-block {
-            background-color: rgba(0, 0, 0, 0.3); 
+            background-color: rgba(0, 0, 0, 0.3);
             margin-bottom: 1rem;
             border-radius: 0.5rem;
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
+
         .code-header {
             background-color: rgba(0, 0, 0, 0.4);
             padding: 0.5rem 0.75rem;
@@ -158,22 +197,26 @@
             color: #d1d5db;
             font-weight: bold;
         }
+
         .code-content {
             padding: 1rem;
             overflow-x: auto;
             background-color: rgba(0, 0, 0, 0.2);
             border-radius: 0 0 0.5rem 0.5rem;
         }
+
         .code-content pre {
             background-color: transparent;
             border: none;
             margin: 0;
             padding: 0;
         }
+
         .code-content code {
             background-color: transparent;
             color: #e5e7eb;
         }
+
         .no-code {
             display: flex;
             align-items: center;
@@ -192,7 +235,7 @@
             background-color: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(8px);
         }
-        
+
         .loading-compact {
             display: flex;
             align-items: center;
@@ -201,13 +244,13 @@
             height: 60px;
             background: transparent;
         }
-        
+
         .dots-container {
             display: inline-flex;
             align-items: center;
             gap: 0.3rem;
         }
-        
+
         .bouncing-dot {
             width: 8px;
             height: 8px;
@@ -215,16 +258,28 @@
             background-color: #4CAF50;
             animation: bounce 1.4s infinite ease-in-out;
         }
-        
-        .bouncing-dot:nth-child(1) { animation-delay: -0.32s; }
-        .bouncing-dot:nth-child(2) { animation-delay: -0.16s; }
-        .bouncing-dot:nth-child(3) { animation-delay: 0s; }
-        
+
+        .bouncing-dot:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .bouncing-dot:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        .bouncing-dot:nth-child(3) {
+            animation-delay: 0s;
+        }
+
         @keyframes bounce {
-            0%, 80%, 100% {
+
+            0%,
+            80%,
+            100% {
                 transform: scale(0);
                 opacity: 0.5;
             }
+
             40% {
                 transform: scale(1);
                 opacity: 1;
@@ -251,11 +306,11 @@
         .token.cdata {
             color: #6a737d;
         }
-        
+
         .token.punctuation {
             color: #e1e4e8;
         }
-        
+
         .token.property,
         .token.tag,
         .token.boolean,
@@ -265,7 +320,7 @@
         .token.deleted {
             color: #79b8ff;
         }
-        
+
         .token.selector,
         .token.attr-name,
         .token.string,
@@ -274,7 +329,7 @@
         .token.inserted {
             color: #85e89d;
         }
-        
+
         .token.operator,
         .token.entity,
         .token.url,
@@ -282,42 +337,48 @@
         .style .token.string {
             color: #f97583;
         }
-        
+
         .token.atrule,
         .token.attr-value,
         .token.keyword {
             color: #f97583;
         }
-        
+
         .token.function,
         .token.class-name {
             color: #b392f0;
         }
-        
+
         .token.regex,
         .token.important,
         .token.variable {
             color: #ffab70;
         }
-        
+
         .token.important,
         .token.bold {
             font-weight: bold;
         }
-        
+
         .token.italic {
             font-style: italic;
         }
-        
+
         .token.entity {
             cursor: help;
         }
 
         /* Ensure content is always visible */
-        .hidden { display: none !important; }
-        .visible { display: block !important; }
+        .hidden {
+            display: none !important;
+        }
+
+        .visible {
+            display: block !important;
+        }
     </style>
 </head>
+
 <body class="text-white">
     <div class="main-container">
         <!-- Loading State -->
@@ -369,7 +430,7 @@
 
         // Configure marked for better rendering
         marked.setOptions({
-            highlight: function(code, lang) {
+            highlight: function (code, lang) {
                 if (Prism.languages[lang]) {
                     return Prism.highlight(code, Prism.languages[lang], lang);
                 }
@@ -385,49 +446,49 @@
             window.electronAPI.onShowLoading(() => {
                 showLoadingState();
             });
-            
+
             window.electronAPI.onDisplayLlmResponse((event, data) => {
                 const response = data.content || data.response;
-            
-            // Check if window is still small (compact size) and request expansion
-            if (window.innerWidth < 500 || window.innerHeight < 300) {
-                // Pre-calculate content metrics for initial sizing
-                if (response) {
-                    const codeBlocks = extractCodeBlocks(response);
-                    const contentMetrics = calculateContentMetrics(response, codeBlocks);
-                    
-                    window.electronAPI.expandLlmWindow(contentMetrics)
-                        .then(() => {
-                            setTimeout(() => {
+
+                // Check if window is still small (compact size) and request expansion
+                if (window.innerWidth < 500 || window.innerHeight < 300) {
+                    // Pre-calculate content metrics for initial sizing
+                    if (response) {
+                        const codeBlocks = extractCodeBlocks(response);
+                        const contentMetrics = calculateContentMetrics(response, codeBlocks);
+
+                        window.electronAPI.expandLlmWindow(contentMetrics)
+                            .then(() => {
+                                setTimeout(() => {
+                                    hideLoadingState();
+                                    displayResponse(data);
+                                    setupScrolling();
+                                    setTimeout(verifyDisplayState, 300);
+                                }, 200);
+                            })
+                            .catch(error => {
+                                console.error('Failed to expand window:', error);
                                 hideLoadingState();
                                 displayResponse(data);
                                 setupScrolling();
                                 setTimeout(verifyDisplayState, 300);
-                            }, 200);
-                        })
-                        .catch(error => {
-                            console.error('Failed to expand window:', error);
-                            hideLoadingState();
-                            displayResponse(data);
-                            setupScrolling();
-                            setTimeout(verifyDisplayState, 300);
-                        });
+                            });
+                    } else {
+                        // Fallback for missing response data
+                        hideLoadingState();
+                        displayResponse(data);
+                        setupScrolling();
+                        // Verify display state after fallback
+                        setTimeout(verifyDisplayState, 400);
+                    }
                 } else {
-                    // Fallback for missing response data
                     hideLoadingState();
                     displayResponse(data);
                     setupScrolling();
-                    // Verify display state after fallback
-                    setTimeout(verifyDisplayState, 400);
+
+                    // Verify display state after a short delay
+                    setTimeout(verifyDisplayState, 500);
                 }
-            } else {
-                hideLoadingState();
-                displayResponse(data);
-                setupScrolling();
-                
-                // Verify display state after a short delay
-                setTimeout(verifyDisplayState, 500);
-            }
             });
         } else {
             console.error('electronAPI not available! Cannot set up event listeners.');
@@ -436,16 +497,16 @@
         function showLoadingState() {
             const loadingElement = document.getElementById('loading');
             const responseElement = document.getElementById('response-content');
-            
+
             if (loadingElement) {
                 loadingElement.classList.remove('hidden');
                 loadingElement.style.display = ''; // Remove any forced display styles
             }
-            
+
             if (responseElement) {
                 responseElement.classList.add('hidden');
             }
-            
+
             console.log('Loading state shown - should see Analyzing...');
         }
 
@@ -463,18 +524,18 @@
         function calculateContentMetrics(response, codeBlocks) {
             // Count lines in the response
             const lineCount = response.split('\n').length;
-            
+
             // Check for long lines (over 80 characters)
             const hasLongLines = response.split('\n').some(line => line.length > 80);
-            
+
             // Count code blocks
             const codeBlockCount = codeBlocks.length;
-            
+
             // Estimate content complexity
             const hasCode = codeBlockCount > 0;
             const isLongContent = lineCount > 30;
             const hasMultipleCodeBlocks = codeBlockCount > 2;
-            
+
             return {
                 lineCount,
                 hasLongLines,
@@ -489,14 +550,14 @@
         function displayResponse(data) {
             // Show content
             const responseElement = document.getElementById('response-content');
-            
+
             if (responseElement) {
                 responseElement.classList.remove('hidden');
             }
 
             // Parse the response - check both content and response properties for compatibility
             const response = data.content || data.response;
-            
+
             if (!response) {
                 console.error('No response data received', {
                     dataKeys: Object.keys(data),
@@ -505,7 +566,7 @@
                 });
                 return;
             }
-            
+
             // Check if response contains code blocks
             const codeBlocks = extractCodeBlocks(response);
             hasCode = codeBlocks.length > 0;
@@ -520,7 +581,7 @@
                 // Full layout: all content in one panel
                 displayFullLayout(response);
             }
-            
+
             // Request dynamic window sizing based on content
             setTimeout(() => {
                 window.electronAPI.resizeLlmWindowForContent(contentMetrics)
@@ -564,14 +625,14 @@
                 if (element) {
                     // Enable mouse/trackpad scrolling with smooth behavior
                     element.style.scrollBehavior = 'smooth';
-                    
+
                     // Add mouse enter handler to ensure focus for scrolling
                     element.addEventListener('mouseenter', handleMouseEnter, { passive: true });
                     element.addEventListener('mouseleave', handleMouseLeave, { passive: true });
-                    
+
                     // Add wheel event for enhanced scrolling
                     element.addEventListener('wheel', handleWheelScroll, { passive: false });
-                    
+
                 }
             });
         }
@@ -692,10 +753,10 @@
         // Add keyboard scrolling support for when interactive
         document.addEventListener('keydown', (e) => {
             if (!isInteractive) return;
-            
+
             const activeElement = document.activeElement;
             let targetElement = null;
-            
+
             // Find the currently focused scrollable element
             for (let element of scrollableElements) {
                 if (element === activeElement || element.contains(activeElement)) {
@@ -703,17 +764,17 @@
                     break;
                 }
             }
-            
+
             // Default to first scrollable element if none focused
             if (!targetElement && scrollableElements.length > 0) {
                 targetElement = scrollableElements[0];
             }
-            
+
             if (!targetElement) return;
-            
+
             const scrollAmount = 50; // Pixels to scroll
-            
-            switch(e.key) {
+
+            switch (e.key) {
                 case 'ArrowUp':
                     e.preventDefault();
                     targetElement.scrollBy({ top: -scrollAmount, behavior: 'smooth' });
@@ -753,16 +814,16 @@
         function verifyDisplayState() {
             const loadingElement = document.getElementById('loading');
             const responseElement = document.getElementById('response-content');
-            
+
             const isLoadingHidden = loadingElement ? loadingElement.classList.contains('hidden') : true;
             const isContentVisible = responseElement ? !responseElement.classList.contains('hidden') : false;
-            
+
             console.log('Display state verification:', {
                 loadingHidden: isLoadingHidden,
                 contentVisible: isContentVisible,
                 windowVisible: !document.hidden
             });
-            
+
             if (!isLoadingHidden || !isContentVisible) {
                 console.warn('Display state inconsistent - forcing correction');
                 if (loadingElement) {
@@ -776,16 +837,181 @@
         }
 
         // Add global debugging function
-        window.debugLLMWindow = function() {
+        window.debugLLMWindow = function () {
             logger.debug('=== LLM Window Debug Info ===');
             logger.debug('Current layout:', currentLayout);
             logger.debug('Has code:', hasCode);
             logger.debug('Is interactive:', isInteractive);
             logger.debug('Scrollable elements:', scrollableElements.length);
-            
+
             const loadingElement = document.getElementById('loading');
             const responseElement = document.getElementById('response-content');
         };
+
+        // --- Copy on Selection Implementation ---
+
+        // Create the tooltip element
+        const copyTooltip = document.createElement('div');
+        copyTooltip.className = 'copy-tooltip hidden';
+        copyTooltip.innerHTML = `
+            <span class="copy-text">Copy</span>
+            <span class="copy-icon">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+            </span>
+        `;
+        document.body.appendChild(copyTooltip);
+
+        // Styles for the tooltip
+        const style = document.createElement('style');
+        style.textContent = `
+            .copy-tooltip {
+                position: absolute;
+                background: rgba(30, 30, 30, 0.95);
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                color: white;
+                padding: 6px 10px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-family: sans-serif;
+                pointer-events: auto;
+                cursor: pointer;
+                z-index: 9999;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                backdrop-filter: blur(4px);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+                transition: opacity 0.2s, transform 0.2s;
+                transform: translateY(0);
+                opacity: 1;
+                user-select: none;
+            }
+            .copy-tooltip.hidden {
+                opacity: 0;
+                transform: translateY(5px);
+                display: none; /* Actually hide it to prevent blocking interaction */
+            }
+            .copy-tooltip:hover {
+                background: rgba(60, 60, 60, 1);
+                border-color: rgba(255, 255, 255, 0.5);
+            }
+            .copy-tooltip.copied {
+                background: rgba(46, 125, 50, 0.9);
+                border-color: rgba(76, 175, 80, 0.5);
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Debounce timer for selection change
+        let selectionDebounce = null;
+
+        // Use selectionchange for more reliable detection
+        document.addEventListener('selectionchange', () => {
+            if (selectionDebounce) clearTimeout(selectionDebounce);
+            selectionDebounce = setTimeout(handleSelectionChange, 150); // Small delay to let selection settle
+        });
+
+        // Hide tooltip on scroll
+        document.addEventListener('scroll', () => {
+            if (!copyTooltip.classList.contains('hidden')) {
+                hideTooltip();
+            }
+        }, { capture: true, passive: true });
+
+        // Handle tooltip click
+        copyTooltip.addEventListener('mousedown', (e) => {
+            e.preventDefault(); // Prevent losing selection
+            e.stopPropagation();
+            copySelection();
+        });
+
+        function handleSelectionChange() {
+            const selection = window.getSelection();
+
+            // Check if selection exists and is not collapsed (empty)
+            if (selection && !selection.isCollapsed) {
+                const selectedText = selection.toString().trim();
+                if (selectedText.length > 0) {
+                    try {
+                        const range = selection.getRangeAt(0);
+                        const rect = range.getBoundingClientRect();
+
+                        // Verification: Valid dimensions?
+                        if (rect.width > 0 && rect.height > 0) {
+                            showTooltip(rect);
+                            return;
+                        }
+                    } catch (e) {
+                        console.error('Error getting selection range:', e);
+                    }
+                }
+            }
+
+            // If we fall through, hide tooltip
+            hideTooltip();
+        }
+
+        function showTooltip(rect) {
+            // Position above the selection
+            const tooltipHeight = 32;
+            const tooltipWidth = 70;
+
+            let top = rect.top - tooltipHeight - 8;
+            let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
+
+            // Keep within bounds
+            if (top < 10) top = rect.bottom + 8; // Flip to bottom if too close to top
+            if (left < 10) left = 10;
+            if (left + tooltipWidth > window.innerWidth - 10) left = window.innerWidth - tooltipWidth - 10;
+
+            copyTooltip.style.top = `${top}px`; // window.scrollY is 0 in this app layout usually
+            copyTooltip.style.left = `${left}px`;
+
+            copyTooltip.classList.remove('hidden');
+            copyTooltip.style.display = 'flex'; // Ensure flex display when visible
+
+            // Reset state
+            copyTooltip.classList.remove('copied');
+            copyTooltip.querySelector('.copy-text').textContent = 'Copy';
+        }
+
+        function hideTooltip() {
+            copyTooltip.classList.add('hidden');
+            // Allow transition to finish before display: none if possible, but for now simple toggle
+            setTimeout(() => {
+                if (copyTooltip.classList.contains('hidden')) {
+                    copyTooltip.style.display = 'none';
+                }
+            }, 200);
+        }
+
+        async function copySelection() {
+            const selection = window.getSelection();
+            const text = selection.toString();
+
+            if (text) {
+                try {
+                    await navigator.clipboard.writeText(text);
+
+                    // Visual feedback
+                    copyTooltip.classList.add('copied');
+                    copyTooltip.querySelector('.copy-text').textContent = 'Copied!';
+
+                    // Hide after delay
+                    setTimeout(() => {
+                        hideTooltip();
+                    }, 1500);
+
+                } catch (err) {
+                    console.error('Failed to copy: ', err);
+                    copyTooltip.querySelector('.copy-text').textContent = 'Error';
+                }
+            }
+        }
     </script>
 </body>
+
 </html>

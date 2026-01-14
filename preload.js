@@ -107,7 +107,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   receive: (channel, callback) => ipcRenderer.on(channel, callback),
   
   // Remove listeners
-  removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel)
+  removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
+  
+  // Clipboard
+  writeToClipboard: (text) => ipcRenderer.invoke('write-to-clipboard', text)
 })
 
 contextBridge.exposeInMainWorld('api', {

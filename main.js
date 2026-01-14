@@ -168,20 +168,20 @@ class ApplicationController {
 
     ipcMain.on("web-speech-transcription", (event, { text }) => {
       if (!text || text.trim().length === 0) return;
-      
+
       // Just log for debugging - don't auto-process anymore
       // User will manually send via chat input after reviewing/editing
       logger.debug("Received web speech transcription", {
         textLength: text.length,
         textPreview: text.substring(0, 50) + "..."
       });
-      
+
       // Broadcast to windows so they can update UI if needed
       const windows = BrowserWindow.getAllWindows();
       windows.forEach((window) => {
         window.webContents.send("transcription-received", { text });
       });
-      
+
       // NOTE: Auto-processing removed - user now reviews transcript in text field
       // and manually presses Enter to send, which triggers 'send-chat-message' handler
     });
@@ -355,21 +355,21 @@ class ApplicationController {
     ipcMain.handle("send-chat-message", async (event, text) => {
       // Check if there's a pending screenshot - if so, process with vision
       if (this.hasPendingScreenshot()) {
-        logger.info('Processing chat message with pending screenshot', { 
+        logger.info('Processing chat message with pending screenshot', {
           textLength: text.length,
-          hasPendingScreenshot: true 
+          hasPendingScreenshot: true
         });
-        
+
         // Process the screenshot with the user's prompt
         const result = await this.processScreenshotWithPrompt(text);
         return result;
       }
-      
+
       // Normal chat message processing (no screenshot)
       // Add chat message to session memory
       sessionManager.addUserInput(text, 'chat');
       logger.debug('Chat message added to session memory', { textLength: text.length });
-      
+
       // Process typed message with LLM in the same way as transcribed text
       setTimeout(async () => {
         try {
@@ -382,7 +382,7 @@ class ApplicationController {
           });
         }
       }, 500);
-      
+
       return { success: true };
     });
 
@@ -439,20 +439,20 @@ class ApplicationController {
     // Audio transcription via Gemini
     ipcMain.handle("transcribe-audio", async (event, { base64Audio }) => {
       try {
-        logger.info("🎤 [MAIN] Received audio for transcription", { 
-          audioSize: base64Audio ? base64Audio.length : 0 
+        logger.info("🎤 [MAIN] Received audio for transcription", {
+          audioSize: base64Audio ? base64Audio.length : 0
         });
-        
+
         if (!base64Audio || base64Audio.length < 100) {
           logger.warn("🎤 [MAIN] Audio data too small or missing");
           return { success: false, error: "Audio data too small or missing" };
         }
-        
+
         logger.info("🎤 [MAIN] Calling llmService.transcribeAudio...");
         const transcript = await llmService.transcribeAudio(base64Audio);
-        
+
         if (transcript) {
-          logger.info("🎤 [MAIN] Audio transcription successful", { 
+          logger.info("🎤 [MAIN] Audio transcription successful", {
             transcriptLength: transcript.length,
             transcriptPreview: transcript.substring(0, 100)
           });
@@ -462,7 +462,7 @@ class ApplicationController {
           return { success: false, error: "No transcription returned" };
         }
       } catch (error) {
-        logger.error("🎤 [MAIN] Audio transcription failed", { 
+        logger.error("🎤 [MAIN] Audio transcription failed", {
           error: error.message,
           stack: error.stack
         });
@@ -474,7 +474,7 @@ class ApplicationController {
       try {
         const connectivity = await llmService.checkNetworkConnectivity();
         const apiTest = await llmService.testConnection();
-        
+
         return {
           success: true,
           connectivity,
@@ -612,6 +612,18 @@ class ApplicationController {
         process.exit(1);
       }
     });
+
+    // Clipboard write handler
+    ipcMain.handle("write-to-clipboard", (event, text) => {
+      try {
+        const { clipboard } = require("electron");
+        clipboard.writeText(text);
+        return { success: true };
+      } catch (error) {
+        logger.error("Clipboard write failed:", error);
+        return { success: false, error: error.message };
+      }
+    });
   }
 
   toggleSpeechRecognition() {
@@ -619,12 +631,12 @@ class ApplicationController {
     // First, show the chat window so user can see the live transcript
     windowManager.switchToWindow("chat");
     windowManager.setInteractive(true);
-    
+
     // Send toggle event to all windows
     BrowserWindow.getAllWindows().forEach((window) => {
       window.webContents.send("toggle-speech-recognition");
     });
-    
+
     logger.info("Speech recognition toggle sent to renderer via global shortcut");
   }
 
@@ -765,7 +777,7 @@ class ApplicationController {
 
       windowManager.hideLLMResponse();
       this.broadcastOCRError(error.message);
-      
+
       sessionManager.addConversationEvent({
         role: 'system',
         content: `Screenshot OCR failed: ${error.message}`,
@@ -947,7 +959,7 @@ class ApplicationController {
       // Check if current skill needs programming language context
       const skillsRequiringProgrammingLanguage = ['programming', 'dsa', 'devops', 'system-design', 'data-science'];
       const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
-      
+
       const llmResult = await llmService.processTextWithSkill(
         text,
         this.activeSkill,
@@ -1063,7 +1075,7 @@ class ApplicationController {
       // Try to provide a fallback response
       try {
         const fallbackResult = llmService.generateIntelligentFallbackResponse(text, this.activeSkill);
-        
+
         sessionManager.addModelResponse(fallbackResult.response, {
           skill: this.activeSkill,
           processingTime: fallbackResult.metadata.processingTime,
@@ -1073,12 +1085,12 @@ class ApplicationController {
         });
 
         this.broadcastTranscriptionLLMResponse(fallbackResult);
-        
+
         logger.info("Used fallback response for transcription", {
           skill: this.activeSkill,
           fallbackResponse: fallbackResult.response
         });
-        
+
       } catch (fallbackError) {
         logger.error("Fallback response also failed", {
           fallbackError: fallbackError.message
