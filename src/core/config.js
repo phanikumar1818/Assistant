@@ -18,7 +18,7 @@ class ConfigManager {
         isDevelopment: this.env === 'development',
         isProduction: this.env === 'production'
       },
-      
+
       window: {
         defaultWidth: 400,
         defaultHeight: 600,
@@ -40,7 +40,8 @@ class ConfigManager {
 
       llm: {
         gemini: {
-          model: 'gemini-2.0-flash', // Using gemini-2.0-flash model (latest stable flash model)
+          model: 'gemini-2.0-flash', // Using 'gemini-2.0-flash' model (latest stable flash model) 
+          //['gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']
           maxRetries: 3,
           timeout: 30000,
           fallbackEnabled: true,
@@ -54,6 +55,11 @@ class ConfigManager {
           enableDictation: true,
           enableAudioLogging: false,
           outputFormat: 'detailed'
+        },
+        continuous: {
+          includeMicrophone: true,
+          chunkIntervalMs: 5000,
+          maxTranscribeBytes: 8388608
         }
       },
 

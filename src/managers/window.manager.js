@@ -1591,17 +1591,14 @@ class WindowManager {
   handleRecordingStarted() {
     this.isRecording = true;
     this.showChatWindow();
-    // Notify all windows about recording state
     this.broadcastToAllWindows('recording-started');
-    logger.debug('Recording started, chat window shown');
+    logger.debug('Continuous listening started, chat window shown');
   }
 
   handleRecordingStopped() {
     this.isRecording = false;
-    this.hideChatWindow();
-    // Notify all windows about recording state
     this.broadcastToAllWindows('recording-stopped');
-    logger.debug('Recording stopped, chat window hidden');
+    logger.debug('Continuous listening stopped');
   }
 
   broadcastSkillChange(skill) {

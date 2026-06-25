@@ -13,9 +13,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   clearPendingScreenshot: () => ipcRenderer.invoke('clear-pending-screenshot'),
   getPendingScreenshotPreview: () => ipcRenderer.invoke('get-pending-screenshot-preview'),
   
-  // Speech recognition
-  startSpeechRecognition: () => ipcRenderer.invoke('start-speech-recognition'),
-  stopSpeechRecognition: () => ipcRenderer.invoke('stop-speech-recognition'),
+  // Speech recognition (legacy — continuous listening handled in chat renderer)
+  startSpeechRecognition: () => ipcRenderer.invoke('toggle-continuous-listening'),
+  stopSpeechRecognition: () => ipcRenderer.invoke('toggle-continuous-listening'),
+  toggleContinuousListening: () => ipcRenderer.invoke('toggle-continuous-listening'),
+  syncMeetingTranscript: (transcriptData) => ipcRenderer.invoke('sync-meeting-transcript', transcriptData),
+  getMeetingTranscript: () => ipcRenderer.invoke('get-meeting-transcript'),
   
   // Window management
   showAllWindows: () => ipcRenderer.invoke('show-all-windows'),
@@ -91,8 +94,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onScreenshotProcessed: (callback) => ipcRenderer.on('screenshot-processed', callback),
   onScreenshotError: (callback) => ipcRenderer.on('screenshot-error', callback),
   
-  // Toggle speech recognition (from global shortcut Alt+R)
-  onToggleSpeechRecognition: (callback) => ipcRenderer.on('toggle-speech-recognition', callback),
+  // Toggle continuous meeting listening (from global shortcut Alt+R)
+  onToggleContinuousListening: (callback) => ipcRenderer.on('toggle-continuous-listening', callback),
+  // Legacy alias
+  onToggleSpeechRecognition: (callback) => ipcRenderer.on('toggle-continuous-listening', callback),
   
   // Web Speech API communication helpers
   sendTranscription: (text) => ipcRenderer.send('web-speech-transcription', { text }),

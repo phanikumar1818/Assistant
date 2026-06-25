@@ -924,7 +924,7 @@
         <div class="live-transcript-interim" id="transcriptInterim"></div>
       </div>
       <div class="live-transcript-hint">
-        Click <kbd>🎤</kbd> to stop • Transcript will appear in text field • Press <kbd>Enter</kbd> to send
+        Toggle <kbd>🎤</kbd> to start/stop meeting capture • Press <kbd>Enter</kbd> to answer (transcribes new audio since last answer)
       </div>
     </div>
 
@@ -935,7 +935,7 @@
 
     <div class="chat-input">
       <div class="input-container">
-        <input type="text" class="input-field" placeholder="Type a message or transcription..." id="messageInput" />
+        <input type="text" class="input-field" placeholder="Optional: add or edit your question, then press Enter" id="messageInput" />
         <button class="mic-button" id="micButton">
           <i class="fas fa-microphone"></i>
         </button>
@@ -946,6 +946,7 @@
     </div>
   </div>
   <script src="lib/markdown.js"></script>
+  <script src="src/ui/meeting-listening.js"></script>
   <script>
     // Use electronAPI from preload script instead of direct require
     const whysperAPI = window.electronAPI;
@@ -970,234 +971,51 @@
     const transcriptFinal = document.getElementById('transcriptFinal');
     const transcriptInterim = document.getElementById('transcriptInterim');
 
-    let isRecording = false;
+    let isListening = false;
     let isInteractive = true;
     let listeningStartTime = null;
     let listeningTimer = null;
     let hasPendingScreenshot = false;
 
-    // Accumulated transcript during recording session
-    let accumulatedTranscript = '';
-
-    // MediaRecorder-based Speech Recognition using Gemini API
-    // This is more reliable than Web Speech API for Electron apps
-    class AudioRecognitionManager {
-      constructor() {
-        console.log('🎤 Initializing AudioRecognitionManager...');
-        this.mediaRecorder = null;
-        this.audioChunks = [];
-        this.stream = null;
-        this.isListening = false;
-        this.isSupported = true; // MediaRecorder is always supported in Electron
-
-        // Check for MediaRecorder support
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          console.error('🎤 MediaDevices API not available');
-          this.isSupported = false;
+    const meetingListener = new MeetingListening.ContinuousListeningManager({
+      includeMicrophone: true,
+      chunkIntervalMs: 5000,
+      onStatus: (status) => addMessage(status, 'system'),
+      onError: (error) => addMessage(`Meeting audio: ${error}`, 'error'),
+      onListeningChange: (listening) => {
+        isListening = listening;
+        if (listening) {
+          handleListeningStarted();
+        } else {
+          handleListeningStopped();
         }
-
-        console.log('🎤 AudioRecognitionManager initialized, isSupported:', this.isSupported);
+      },
+      transcribeAudio: (base64Audio) => {
+        if (!whysperAPI?.sendAudioForTranscription) {
+          return Promise.resolve({ success: false, error: 'Transcription unavailable' });
+        }
+        return whysperAPI.sendAudioForTranscription(base64Audio);
+      },
+      syncTranscript: (data) => {
+        if (whysperAPI?.syncMeetingTranscript) {
+          return whysperAPI.syncMeetingTranscript(data);
+        }
+        return Promise.resolve();
       }
+    });
 
-      async start() {
-        console.log('🎤 start() called');
-
-        if (this.isListening) {
-          console.warn('🎤 Already listening');
-          return false;
-        }
-
-        try {
-          // Request microphone access
-          console.log('🎤 Requesting microphone access...');
-          this.stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-              sampleRate: 16000
-            }
-          });
-
-          console.log('🎤 Microphone access granted');
-
-          // Clear previous chunks
-          this.audioChunks = [];
-
-          // Create MediaRecorder with appropriate format
-          const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-            ? 'audio/webm;codecs=opus'
-            : 'audio/webm';
-
-          this.mediaRecorder = new MediaRecorder(this.stream, { mimeType });
-          console.log('🎤 MediaRecorder created with mimeType:', mimeType);
-
-          this.mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-              this.audioChunks.push(event.data);
-              console.log('🎤 Audio chunk received, size:', event.data.size);
-            }
-          };
-
-          this.mediaRecorder.onstart = () => {
-            console.log('🎤 MediaRecorder STARTED');
-            this.isListening = true;
-            accumulatedTranscript = '';
-            if (whysperAPI && whysperAPI.sendSpeechStatus) {
-              whysperAPI.sendSpeechStatus('Recording audio...');
-            }
-            handleRecordingStarted();
-            updateLiveTranscript('', 'Recording... Speak now');
-          };
-
-          this.mediaRecorder.onstop = async () => {
-            console.log('🎤 MediaRecorder STOPPED, chunks:', this.audioChunks.length);
-            this.isListening = false;
-
-            // Process the recorded audio BEFORE hiding the UI
-            if (this.audioChunks.length > 0) {
-              updateLiveTranscript('', 'Processing speech...');
-              try {
-                await this.processAudio();
-                console.log('🎤 processAudio completed, accumulatedTranscript:', accumulatedTranscript);
-              } catch (err) {
-                console.error('🎤 processAudio error:', err);
-                addMessage('Audio processing failed: ' + err.message, 'error');
-              }
-            } else {
-              addMessage('No audio recorded. Please try again.', 'error');
-            }
-
-            // Now hide the UI after transcription is complete
-            handleRecordingStopped();
-          };
-
-          this.mediaRecorder.onerror = (event) => {
-            console.error('🎤 MediaRecorder error:', event.error);
-            addMessage('🎤 Recording error: ' + (event.error?.message || 'Unknown error'), 'error');
-            this.isListening = false;
-            handleRecordingStopped();
-          };
-
-          // Start recording - collect data every second
-          this.mediaRecorder.start(1000);
-          return true;
-
-        } catch (err) {
-          console.error('🎤 Failed to start recording:', err);
-          let errorMsg = 'Failed to access microphone';
-
-          if (err.name === 'NotAllowedError') {
-            errorMsg = 'Microphone permission denied. Please allow access in your system settings.';
-          } else if (err.name === 'NotFoundError') {
-            errorMsg = 'No microphone found. Please connect a microphone.';
-          } else if (err.name === 'NotReadableError') {
-            errorMsg = 'Microphone is busy or unavailable.';
-          }
-
-          addMessage('🎤 ' + errorMsg, 'error');
-          return false;
-        }
-      }
-
-      stop() {
-        console.log('🎤 stop() called, isListening:', this.isListening);
-
-        if (!this.isListening || !this.mediaRecorder) {
-          console.log('🎤 Not listening, nothing to stop');
-          return false;
-        }
-
-        try {
-          // Stop recording
-          if (this.mediaRecorder.state !== 'inactive') {
-            this.mediaRecorder.stop();
-          }
-
-          // Stop all tracks
-          if (this.stream) {
-            this.stream.getTracks().forEach(track => track.stop());
-            this.stream = null;
-          }
-
-          return true;
-        } catch (err) {
-          console.error('🎤 Failed to stop recording:', err);
-          return false;
-        }
-      }
-
-      async processAudio() {
-        try {
-          console.log('🎤 Processing audio, chunks:', this.audioChunks.length);
-
-          // Create blob from chunks
-          const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-          console.log('🎤 Audio blob size:', audioBlob.size, 'bytes');
-
-          if (audioBlob.size < 500) {
-            addMessage('Recording too short. Please speak for at least 1-2 seconds.', 'error');
-            return;
-          }
-
-          // Convert to base64
-          console.log('🎤 Converting audio to base64...');
-          const base64Audio = await this.blobToBase64(audioBlob);
-          console.log('🎤 Audio converted to base64, length:', base64Audio.length);
-
-          // Send to main process for transcription via Gemini
-          if (whysperAPI && whysperAPI.sendAudioForTranscription) {
-            updateLiveTranscript('', 'Transcribing with AI...');
-            addMessage('🎤 Sending audio to AI for transcription...', 'system');
-
-            console.log('🎤 Calling sendAudioForTranscription...');
-            const result = await whysperAPI.sendAudioForTranscription(base64Audio);
-            console.log('🎤 Transcription result:', JSON.stringify(result));
-
-            if (result && result.success && result.transcript) {
-              console.log('🎤 Transcription successful:', result.transcript);
-              accumulatedTranscript = result.transcript;
-              updateLiveTranscript(result.transcript, '');
-              addMessage('✅ Transcription: "' + result.transcript + '"', 'transcription');
-            } else if (result && result.error) {
-              console.error('🎤 Transcription error from API:', result.error);
-              addMessage('❌ Transcription error: ' + result.error, 'error');
-            } else {
-              console.error('🎤 Unexpected result format:', result);
-              addMessage('❌ Unexpected transcription result', 'error');
-            }
-          } else {
-            console.error('🎤 sendAudioForTranscription not available!');
-            addMessage('Audio recorded (' + Math.round(audioBlob.size / 1024) + 'KB). Transcription service not available.', 'system');
-          }
-
-        } catch (err) {
-          console.error('🎤 Audio processing error:', err);
-          addMessage('❌ Failed to process audio: ' + err.message, 'error');
-        }
-      }
-
-      blobToBase64(blob) {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            // Remove data URL prefix
-            const base64 = reader.result.split(',')[1];
-            resolve(base64);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
+    function refreshTranscriptPreview() {
+      const full = meetingListener.getFullTranscript();
+      const pending = meetingListener.getNewSinceLastAnswer();
+      if (full) {
+        updateLiveTranscript(full, pending ? `(new since last answer: ${pending.substring(0, 120)}${pending.length > 120 ? '…' : ''})` : '');
+      } else if (isListening) {
+        updateLiveTranscript('', isListening ? 'Capturing meeting audio…' : '');
       }
     }
 
-    console.log('🎤 Creating AudioRecognitionManager instance...');
-    const audioRecognition = new AudioRecognitionManager();
-
-    // Alias for backward compatibility
-    const webSpeech = audioRecognition;
-
-    console.log('🎤 AudioRecognitionManager created, isSupported:', audioRecognition.isSupported);
+    // Legacy alias for global shortcut handler name
+    const audioRecognition = meetingListener;
 
     // Live Transcript Functions
     function showLiveTranscriptBox() {
@@ -1369,10 +1187,8 @@
       }
     }
 
-    // Recording Event Handlers
-    function handleRecordingStarted() {
-      isRecording = true;
-
+    // Listening Event Handlers
+    function handleListeningStarted() {
       if (recordingIndicator) {
         recordingIndicator.style.display = 'block';
       }
@@ -1380,14 +1196,12 @@
         micButton.classList.add('recording');
       }
 
-      // Show the live transcript box
       showLiveTranscriptBox();
       showListeningAnimation();
+      updateLiveTranscript(meetingListener.getFullTranscript(), 'Capturing meeting audio (system loopback)...');
     }
 
-    function handleRecordingStopped() {
-      isRecording = false;
-
+    function handleListeningStopped() {
       if (recordingIndicator) {
         recordingIndicator.style.display = 'none';
       }
@@ -1395,50 +1209,60 @@
         micButton.classList.remove('recording');
       }
 
-      // Hide the live transcript box
       hideLiveTranscriptBox();
       hideListeningAnimation();
+      refreshTranscriptPreview();
+    }
 
-      // Populate the input field with the accumulated transcript
-      if (accumulatedTranscript && accumulatedTranscript.trim()) {
-        const cleanTranscript = accumulatedTranscript.trim();
-        if (messageInput) {
-          // Append to existing text if any, otherwise set new
-          const existingText = messageInput.value.trim();
-          if (existingText) {
-            messageInput.value = existingText + ' ' + cleanTranscript;
-          } else {
-            messageInput.value = cleanTranscript;
-          }
-          // Focus the input field so user can press Enter
-          messageInput.focus();
-        }
-        addMessage('Voice input ready - press Enter to send, or edit first', 'system');
-      } else {
-        addMessage('No speech detected. Try again.', 'system');
-      }
+    // Backward-compatible aliases for IPC events
+    function handleRecordingStarted() {
+      handleListeningStarted();
+    }
 
-      // Reset accumulated transcript for next session
-      accumulatedTranscript = '';
+    function handleRecordingStopped() {
+      handleListeningStopped();
     }
 
     function handleTranscription(text) {
-      // This function is now only called from main process for backward compatibility
-      // The new flow is: speak -> accumulated in live box -> populate text field -> user presses Enter
       if (text && typeof text === 'string' && text.trim().length > 0) {
-        console.log('Received transcription from main process:', text.trim());
-        // Populate text field instead of showing message
-        if (messageInput) {
-          const existingText = messageInput.value.trim();
-          if (existingText) {
-            messageInput.value = existingText + ' ' + text.trim();
-          } else {
-            messageInput.value = text.trim();
-          }
-          messageInput.focus();
+        meetingListener.transcriptBuffer.appendSegment(text.trim(), 'external');
+        refreshTranscriptPreview();
+      }
+    }
+
+    async function submitAnswer() {
+      const manualText = messageInput ? messageInput.value.trim() : '';
+
+      try {
+        const prepared = await meetingListener.prepareAnswerPayload(manualText);
+        const textToSend = prepared.payload;
+
+        if (!textToSend) {
+          addMessage('Nothing new to answer yet. Keep listening or type a question.', 'system');
+          return;
         }
-      } else {
-        console.warn('Invalid or empty transcription text - ignoring:', text);
+
+        addMessage(textToSend, 'user');
+        if (messageInput) {
+          messageInput.value = '';
+        }
+
+        refreshTranscriptPreview();
+
+        setTimeout(() => {
+          showThinkingIndicator();
+        }, 300);
+
+        if (whysperAPI && whysperAPI.sendChatMessage) {
+          await whysperAPI.sendChatMessage(textToSend);
+        }
+
+        meetingListener.markAnswerSent();
+        refreshTranscriptPreview();
+      } catch (error) {
+        hideThinkingIndicator();
+        addMessage(`Failed to prepare answer: ${error.message}`, 'error');
+        console.error('submitAnswer failed:', error);
       }
     }
 
@@ -1492,6 +1316,10 @@
 
       whysperAPI.onSessionCleared(() => {
         addMessage('Session memory has been cleared', 'system');
+        meetingListener.transcriptBuffer.segments = [];
+        meetingListener.transcriptBuffer.lastAnswerAt = 0;
+        meetingListener.audioChunksSinceLastAnswer = [];
+        refreshTranscriptPreview();
       });
 
       whysperAPI.onTranscriptionLlmResponse((event, data) => {
@@ -1532,50 +1360,19 @@
     // UI Event Listeners
     if (micButton) {
       micButton.addEventListener('click', async () => {
-        console.log('🎤 Mic button clicked! isRecording:', isRecording, 'isInteractive:', isInteractive);
-
         if (!isInteractive) {
           addMessage('Window is in non-interactive mode. Press Alt+A to enable interaction.', 'error');
           return;
         }
 
         try {
-          if (isRecording) {
-            console.log('🎤 Stopping recording...');
-            // Stop recording
-            if (audioRecognition) {
-              const stopped = audioRecognition.stop();
-              console.log('🎤 audioRecognition.stop() returned:', stopped);
-            }
-          } else {
-            console.log('🎤 Starting recording...');
-            // First show the UI feedback
-            addMessage('🎤 Starting voice recognition...', 'system');
-
-            // Start audio recording
-            if (audioRecognition) {
-              console.log('🎤 audioRecognition exists, isSupported:', audioRecognition.isSupported);
-
-              if (!audioRecognition.isSupported) {
-                addMessage('⚠️ Voice recognition not available. Check microphone permissions.', 'error');
-                return;
-              }
-
-              // Await the async start method
-              const started = await audioRecognition.start();
-              console.log('🎤 audioRecognition.start() returned:', started);
-
-              if (!started) {
-                addMessage('⚠️ Failed to start recording. Check microphone permissions.', 'error');
-              }
-            } else {
-              console.error('🎤 audioRecognition is not defined!');
-              addMessage('⚠️ Speech recognition not initialized.', 'error');
-            }
+          addMessage(isListening ? 'Stopping meeting capture...' : 'Starting meeting capture (share screen + system audio)...', 'system');
+          const result = await meetingListener.toggle();
+          if (result?.error) {
+            addMessage(`⚠️ ${result.error}`, 'error');
           }
         } catch (error) {
-          console.error('🎤 Speech recognition error:', error);
-          addMessage(`⚠️ Speech error: ${error.message}`, 'error');
+          addMessage(`⚠️ Meeting audio error: ${error.message}`, 'error');
         }
       });
     } else {
@@ -1583,51 +1380,15 @@
     }
 
     if (sendButton) {
-      sendButton.addEventListener('click', async () => {
-        const text = messageInput.value.trim();
-        if (text) {
-          addMessage(text, 'user');
-          messageInput.value = '';
-
-          // Show thinking indicator after user message
-          setTimeout(() => {
-            showThinkingIndicator();
-          }, 300);
-
-          // Send to main process for session memory storage and LLM processing
-          try {
-            if (whysperAPI && whysperAPI.sendChatMessage) {
-              await whysperAPI.sendChatMessage(text);
-            }
-          } catch (error) {
-            console.error('Failed to send chat message to main process:', error);
-          }
-        }
+      sendButton.addEventListener('click', () => {
+        submitAnswer();
       });
     }
 
     if (messageInput) {
-      messageInput.addEventListener('keypress', async (e) => {
+      messageInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
-          const text = messageInput.value.trim();
-          if (text) {
-            addMessage(text, 'user');
-            messageInput.value = '';
-
-            // Show thinking indicator after user message
-            setTimeout(() => {
-              showThinkingIndicator();
-            }, 300);
-
-            // Send to main process for session memory storage and LLM processing
-            try {
-              if (whysperAPI && whysperAPI.sendChatMessage) {
-                await whysperAPI.sendChatMessage(text);
-              }
-            } catch (error) {
-              console.error('Failed to send chat message to main process:', error);
-            }
-          }
+          submitAnswer();
         }
       });
     }
@@ -1713,38 +1474,37 @@
       }
     });
 
-    // Listen for toggle-speech-recognition from main process (Alt+R global shortcut)
-    if (whysperAPI && whysperAPI.onToggleSpeechRecognition) {
-      whysperAPI.onToggleSpeechRecognition(async () => {
-        console.log('Toggle speech recognition received from main process');
+    // Listen for continuous listening toggle from main process (Alt+R / main window mic)
+    if (whysperAPI && whysperAPI.onToggleContinuousListening) {
+      whysperAPI.onToggleContinuousListening(async () => {
         try {
-          if (isRecording) {
-            console.log('🎤 Stopping via global shortcut...');
-            if (audioRecognition && audioRecognition.stop) {
-              audioRecognition.stop();
-            }
-          } else {
-            console.log('🎤 Starting via global shortcut...');
-            if (audioRecognition && audioRecognition.start) {
-              const started = await audioRecognition.start();
-              console.log('🎤 Started via global shortcut:', started);
-              if (!started) {
-                addMessage('⚠️ Failed to start recording. Check microphone.', 'error');
-              }
-            }
-          }
+          await meetingListener.toggle();
         } catch (error) {
-          console.error('🎤 Global shortcut error:', error);
           addMessage(`⚠️ Error: ${error.message}`, 'error');
         }
       });
     }
 
     // Initialize
-    addMessage('Voice assistant ready. Press the mic button or Alt+R to start speaking.', 'system');
+    addMessage('Meeting assistant ready. Toggle 🎤 (or Alt+R) to capture meeting audio. Press Enter to answer.', 'system');
 
     // Check for pending screenshot on window load
     checkPendingScreenshot();
+
+    // Restore meeting transcript history from main process (for post-meeting features)
+    (async function loadPersistedTranscript() {
+      try {
+        if (whysperAPI?.getMeetingTranscript) {
+          const result = await whysperAPI.getMeetingTranscript();
+          if (result?.transcript) {
+            meetingListener.transcriptBuffer.loadFromJSON(result.transcript);
+            refreshTranscriptPreview();
+          }
+        }
+      } catch (error) {
+        console.warn('Could not load persisted meeting transcript:', error);
+      }
+    })();
 
     // Debug: Press F12 to toggle DevTools
     document.addEventListener('keydown', (e) => {
@@ -1764,7 +1524,7 @@
 
     // Log initialization status
     console.log('=== Chat Window Initialized ===');
-    console.log('Web Speech API supported:', webSpeech.isSupported);
+    console.log('Meeting listening ready:', !!meetingListener);
     console.log('whysperAPI available:', !!whysperAPI);
     console.log('micButton found:', !!micButton);
     console.log('messageInput found:', !!messageInput);

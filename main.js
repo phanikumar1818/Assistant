@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-const { app, BrowserWindow, globalShortcut, session, ipcMain } = require("electron");
+const { app, BrowserWindow, globalShortcut, session, ipcMain, desktopCapturer } = require("electron");
 const logger = require("./src/core/logger").createServiceLogger("MAIN");
 const config = require("./src/core/config");
 
@@ -30,6 +30,7 @@ class ApplicationController {
     this.isReady = false;
     this.activeSkill = "dsa";
     this.pendingScreenshot = null; // Store pending screenshot for AI context
+    this.meetingTranscript = { segments: [], lastAnswerAt: 0 };
 
     // Window configurations for reference
     this.windowConfigs = {
@@ -122,6 +123,46 @@ class ApplicationController {
         callback(granted);
       }
     );
+
+    this.setupSystemAudioCapture();
+  }
+
+  setupSystemAudioCapture() {
+    session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+      try {
+        const sources = await desktopCapturer.getSources({
+          types: ["screen"],
+          thumbnailSize: { width: 0, height: 0 },
+        });
+
+        if (!sources.length) {
+          logger.warn("No screen sources available for system audio capture");
+          callback({});
+          return;
+        }
+
+        const primarySource =
+          sources.find((source) => /screen|display|entire/i.test(source.name)) ||
+          sources[0];
+
+        const response = { video: primarySource };
+
+        if (process.platform === "win32" || process.platform === "linux") {
+          response.audio = "loopback";
+        }
+
+        logger.info("Granting system audio capture", {
+          source: primarySource.name,
+          platform: process.platform,
+          hasLoopback: !!response.audio,
+        });
+
+        callback(response);
+      } catch (error) {
+        logger.error("System audio capture handler failed", { error: error.message });
+        callback({});
+      }
+    }, { useSystemPicker: process.platform === 'darwin' });
   }
 
   setupGlobalShortcuts() {
@@ -338,6 +379,7 @@ class ApplicationController {
 
     ipcMain.handle("clear-session-memory", () => {
       sessionManager.clear();
+      this.meetingTranscript = { segments: [], lastAnswerAt: 0 };
       windowManager.broadcastToAllWindows("session-cleared");
       return { success: true };
     });
@@ -434,6 +476,39 @@ class ApplicationController {
 
     ipcMain.handle("test-gemini-connection", async () => {
       return await llmService.testConnection();
+    });
+
+    // Continuous meeting listening (renderer captures system loopback audio)
+    ipcMain.handle("sync-meeting-transcript", (event, transcriptData) => {
+      if (transcriptData && Array.isArray(transcriptData.segments)) {
+        this.meetingTranscript = {
+          segments: transcriptData.segments,
+          lastAnswerAt: transcriptData.lastAnswerAt || 0,
+        };
+      }
+      return { success: true };
+    });
+
+    ipcMain.handle("get-meeting-transcript", () => {
+      return {
+        success: true,
+        transcript: this.meetingTranscript,
+        fullText: this.meetingTranscript.segments.map((s) => s.text).join(" ").trim(),
+        newSinceLastAnswer: this.meetingTranscript.segments
+          .filter((s) => s.timestamp >= this.meetingTranscript.lastAnswerAt)
+          .map((s) => s.text)
+          .join(" ")
+          .trim(),
+      };
+    });
+
+    ipcMain.handle("toggle-continuous-listening", () => {
+      windowManager.switchToWindow("chat");
+      windowManager.setInteractive(true);
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send("toggle-continuous-listening");
+      });
+      return { success: true };
     });
 
     // Audio transcription via Gemini
@@ -627,17 +702,14 @@ class ApplicationController {
   }
 
   toggleSpeechRecognition() {
-    // Web Speech API is handled in renderer process
-    // First, show the chat window so user can see the live transcript
     windowManager.switchToWindow("chat");
     windowManager.setInteractive(true);
 
-    // Send toggle event to all windows
     BrowserWindow.getAllWindows().forEach((window) => {
-      window.webContents.send("toggle-speech-recognition");
+      window.webContents.send("toggle-continuous-listening");
     });
 
-    logger.info("Speech recognition toggle sent to renderer via global shortcut");
+    logger.info("Continuous listening toggle sent to renderer via global shortcut");
   }
 
   clearSessionMemory() {

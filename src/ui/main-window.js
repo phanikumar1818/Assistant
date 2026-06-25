@@ -244,20 +244,16 @@ class MainWindowUI {
             });
         }
 
-        // Add click handler for microphone
+        // Add click handler for microphone — toggles continuous meeting listening in chat window
         this.micButton.addEventListener('click', async () => {
             if (this.isInteractive) {
-                if (this.isRecording) {
-                    window.electronAPI.stopSpeechRecognition();
-                } else {
-                    // Switch to chat window first so user can see the live transcript
-                    if (window.electronAPI.switchToChat) {
-                        await window.electronAPI.switchToChat();
-                    }
-                    window.electronAPI.startSpeechRecognition();
+                if (window.electronAPI.switchToChat) {
+                    await window.electronAPI.switchToChat();
+                }
+                if (window.electronAPI.toggleContinuousListening) {
+                    await window.electronAPI.toggleContinuousListening();
                 }
             } else {
-                // Show a notification that voice is disabled in non-interactive mode
                 logger.info('Voice button pressed but in non-interactive mode');
             }
         });
@@ -289,10 +285,8 @@ class MainWindowUI {
             document.addEventListener('keydown', (e) => {
                 if (e.altKey && e.key === 'r' && this.isInteractive) {
                     e.preventDefault();
-                    if (this.isRecording) {
-                        window.electronAPI.stopSpeechRecognition();
-                    } else {
-                        window.electronAPI.startSpeechRecognition();
+                    if (window.electronAPI.toggleContinuousListening) {
+                        window.electronAPI.toggleContinuousListening();
                     }
                 }
             });
