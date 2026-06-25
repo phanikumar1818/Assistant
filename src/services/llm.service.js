@@ -1104,19 +1104,28 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
   /**
    * Transcribe audio using Gemini's audio understanding capabilities
    * @param {string} base64Audio - Base64 encoded audio data
+   * @param {object} options - { source: 'meeting'|'microphone', mimeType: string }
    * @returns {string} - Transcribed text
    */
-  async transcribeAudio(base64Audio) {
+  async transcribeAudio(base64Audio, options = {}) {
     if (!this.isInitialized) {
       throw new Error('LLM service not initialized. Check Gemini API key configuration.');
     }
 
+    const source = options.source || 'meeting';
+    const mimeType = options.mimeType || 'audio/webm;codecs=opus';
     const startTime = Date.now();
     this.requestCount++;
+
+    const prompt = source === 'microphone'
+      ? 'This is a microphone recording from someone in a live meeting or interview. Transcribe every word they speak clearly. Include filler words if audible. Output ONLY the transcribed speech with no labels, quotes, or commentary. If truly silent, respond with exactly: [inaudible]'
+      : 'This is system audio captured from a live video call or meeting (Zoom, Teams, Google Meet, etc.). Transcribe ALL audible speech from every participant — questions, answers, and conversation. Preserve the dialogue faithfully. Output ONLY the transcribed speech with no labels, quotes, or commentary. If truly silent, respond with exactly: [inaudible]';
 
     try {
       logger.info('Transcribing audio with Gemini', {
         audioSize: base64Audio.length,
+        source,
+        mimeType,
         requestId: this.requestCount
       });
 
@@ -1126,33 +1135,46 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
           parts: [
             {
               inlineData: {
-                mimeType: 'audio/webm;codecs=opus',
+                mimeType,
                 data: base64Audio
               }
             },
-            {
-              text: 'Transcribe this audio exactly. Output ONLY the transcribed text, nothing else. If the audio is unclear or silent, respond with "[inaudible]".'
-            }
+            { text: prompt }
           ]
         }],
         generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 2048,
+          temperature: 0,
+          maxOutputTokens: 8192,
           topK: 40,
           topP: 0.95
         }
       };
 
-      let response;
-      try {
-        // Use gemini-1.5-flash for audio transcription (better audio support)
-        response = await this.executeAudioRequest(request);
-      } catch (altError) {
-        logger.warn('Audio request method failed, trying alternative', {
-          error: altError.message,
-          requestId: this.requestCount
-        });
-        response = await this.executeAlternativeRequest(request);
+      const audioModels = [
+        'gemini-2.0-flash',
+        'gemini-2.5-flash',
+        'gemini-1.5-flash'
+      ];
+
+      let response = null;
+      let lastError = null;
+
+      for (const model of audioModels) {
+        try {
+          response = await this.executeAudioRequest(request, model);
+          if (response && response.trim()) break;
+        } catch (err) {
+          lastError = err;
+          logger.warn('Audio transcription model failed, trying next', {
+            model,
+            error: err.message,
+            requestId: this.requestCount
+          });
+        }
+      }
+
+      if (!response) {
+        throw lastError || new Error('All audio transcription models failed');
       }
 
       const processingTime = Date.now() - startTime;
@@ -1207,13 +1229,12 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  // Specialized method for audio transcription using gemini-1.5-flash
-  async executeAudioRequest(geminiRequest) {
+  // Specialized method for audio transcription
+  async executeAudioRequest(geminiRequest, modelOverride = null) {
     const apiKey = config.getApiKey('GEMINI');
-    // Use gemini-1.5-flash for audio - it has better multimodal audio support
-    const audioModel = 'gemini-1.5-flash';
+    const audioModel = modelOverride || 'gemini-2.0-flash';
     
-    logger.info('Using audio transcription with gemini-1.5-flash', {
+    logger.info('Using audio transcription model', {
       model: audioModel,
       contentsCount: geminiRequest.contents?.length || 0
     });

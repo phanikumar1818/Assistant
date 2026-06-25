@@ -106,7 +106,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendSpeechError: (error) => ipcRenderer.send('web-speech-error', { error }),
   
   // Audio transcription via Gemini
-  sendAudioForTranscription: (base64Audio) => ipcRenderer.invoke('transcribe-audio', { base64Audio }),
+  sendAudioForTranscription: (base64Audio, options) => ipcRenderer.invoke('transcribe-audio', { base64Audio, ...options }),
   
   // Generic receive method
   receive: (channel, callback) => ipcRenderer.on(channel, callback),

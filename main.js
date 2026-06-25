@@ -13,8 +13,6 @@ app.commandLine.appendSwitch('enable-usermedia-screen-capturing');
 app.commandLine.appendSwitch('allow-http-screen-capture');
 // Disable sandbox for audio access (needed on some systems)
 app.commandLine.appendSwitch('no-sandbox');
-// Enable WebRTC for audio capture
-app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
 
 // Services
 const ocrService = require("./src/services/ocr.service");
@@ -132,7 +130,7 @@ class ApplicationController {
       try {
         const sources = await desktopCapturer.getSources({
           types: ["screen"],
-          thumbnailSize: { width: 0, height: 0 },
+          thumbnailSize: { width: 150, height: 150 },
         });
 
         if (!sources.length) {
@@ -142,7 +140,7 @@ class ApplicationController {
         }
 
         const primarySource =
-          sources.find((source) => /screen|display|entire/i.test(source.name)) ||
+          sources.find((source) => /^screen|^entire|display/i.test(source.name)) ||
           sources[0];
 
         const response = { video: primarySource };
@@ -153,6 +151,7 @@ class ApplicationController {
 
         logger.info("Granting system audio capture", {
           source: primarySource.name,
+          sourceId: primarySource.id,
           platform: process.platform,
           hasLoopback: !!response.audio,
         });
@@ -162,7 +161,7 @@ class ApplicationController {
         logger.error("System audio capture handler failed", { error: error.message });
         callback({});
       }
-    }, { useSystemPicker: process.platform === 'darwin' });
+    }, { useSystemPicker: false });
   }
 
   setupGlobalShortcuts() {
@@ -512,10 +511,12 @@ class ApplicationController {
     });
 
     // Audio transcription via Gemini
-    ipcMain.handle("transcribe-audio", async (event, { base64Audio }) => {
+    ipcMain.handle("transcribe-audio", async (event, { base64Audio, source, mimeType }) => {
       try {
         logger.info("🎤 [MAIN] Received audio for transcription", {
-          audioSize: base64Audio ? base64Audio.length : 0
+          audioSize: base64Audio ? base64Audio.length : 0,
+          source: source || "meeting",
+          mimeType: mimeType || "audio/webm"
         });
 
         if (!base64Audio || base64Audio.length < 100) {
@@ -523,8 +524,10 @@ class ApplicationController {
           return { success: false, error: "Audio data too small or missing" };
         }
 
-        logger.info("🎤 [MAIN] Calling llmService.transcribeAudio...");
-        const transcript = await llmService.transcribeAudio(base64Audio);
+        const transcript = await llmService.transcribeAudio(base64Audio, {
+          source: source || "meeting",
+          mimeType: mimeType || "audio/webm;codecs=opus"
+        });
 
         if (transcript) {
           logger.info("🎤 [MAIN] Audio transcription successful", {

@@ -1,5 +1,5 @@
 /**
- * Continuous meeting listening with system audio loopback + optional mic mix.
+ * Continuous meeting listening with separate system loopback + microphone capture.
  * Transcription is deferred until the user requests an answer (Enter/Send).
  */
 (function (global) {
@@ -15,11 +15,7 @@
       const trimmed = (text || '').trim();
       if (!trimmed) return null;
 
-      const segment = {
-        text: trimmed,
-        timestamp: Date.now(),
-        source
-      };
+      const segment = { text: trimmed, timestamp: Date.now(), source };
       this.segments.push(segment);
       return segment;
     }
@@ -50,10 +46,7 @@
     }
 
     toJSON() {
-      return {
-        segments: [...this.segments],
-        lastAnswerAt: this.lastAnswerAt
-      };
+      return { segments: [...this.segments], lastAnswerAt: this.lastAnswerAt };
     }
 
     loadFromJSON(data) {
@@ -68,19 +61,27 @@
       this.onStatus = options.onStatus || (() => {});
       this.onError = options.onError || (() => {});
       this.onListeningChange = options.onListeningChange || (() => {});
+      this.onLevelUpdate = options.onLevelUpdate || (() => {});
       this.transcribeAudio = options.transcribeAudio || null;
       this.syncTranscript = options.syncTranscript || null;
 
       this.transcriptBuffer = new MeetingTranscriptBuffer();
-      this.mediaRecorder = null;
-      this.audioChunksSinceLastAnswer = [];
-      this.streams = [];
-      this.audioContext = null;
+      this.displayStream = null;
+      this.systemStream = null;
+      this.micStream = null;
+      this.systemRecorder = null;
+      this.micRecorder = null;
+      this.systemChunks = [];
+      this.micChunks = [];
+      this.levelContext = null;
+      this.levelAnalyser = null;
+      this.levelMonitorId = null;
       this.isListening = false;
       this.isProcessingAnswer = false;
-      this.chunkIntervalMs = options.chunkIntervalMs || 5000;
+      this.chunkIntervalMs = options.chunkIntervalMs || 2000;
       this.includeMicrophone = options.includeMicrophone !== false;
-      this.maxTranscribeBytes = options.maxTranscribeBytes || 8 * 1024 * 1024;
+      this.maxTranscribeBytes = options.maxTranscribeBytes || 12 * 1024 * 1024;
+      this.audioBitsPerSecond = options.audioBitsPerSecond || 128000;
     }
 
     get isActive() {
@@ -93,37 +94,11 @@
       }
 
       try {
-        this.onStatus('Starting meeting audio capture (system loopback)...');
-        const stream = await this._acquireMeetingAudioStream();
-        this._attachStream(stream);
-
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm';
-
-        this.mediaRecorder = new MediaRecorder(stream, { mimeType });
-        this.audioChunksSinceLastAnswer = [];
-
-        this.mediaRecorder.ondataavailable = (event) => {
-          if (event.data && event.data.size > 0) {
-            this.audioChunksSinceLastAnswer.push(event.data);
-          }
-        };
-
-        this.mediaRecorder.onerror = (event) => {
-          this.onError(event.error?.message || 'MediaRecorder error');
-        };
-
-        this.mediaRecorder.onstop = () => {
-          if (this.isListening) {
-            this.onError('Recording stopped unexpectedly. Toggle listening to restart.');
-            this._setListening(false);
-          }
-        };
-
-        this.mediaRecorder.start(this.chunkIntervalMs);
+        this.onStatus('Starting meeting capture — select Entire Screen and enable Share system audio.');
+        await this._acquireStreams();
+        this._startRecorders();
         this._setListening(true);
-        this.onStatus('Listening to meeting audio. Press Enter when you want an answer.');
+        this.onStatus('Listening: system audio + microphone. Press Enter when you want an answer.');
         return { success: true };
       } catch (err) {
         this._cleanupStreams();
@@ -135,19 +110,13 @@
     }
 
     stop() {
-      if (!this.isListening && !this.mediaRecorder) {
-        return { success: true };
-      }
-
-      try {
-        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-          this.mediaRecorder.stop();
-        }
-      } catch (err) {
-        console.warn('Error stopping MediaRecorder:', err);
-      }
-
-      this.mediaRecorder = null;
+      this._stopLevelMonitor();
+      this._stopRecorder(this.systemRecorder);
+      this._stopRecorder(this.micRecorder);
+      this.systemRecorder = null;
+      this.micRecorder = null;
+      this.systemChunks = [];
+      this.micChunks = [];
       this._cleanupStreams();
       this._setListening(false);
       this.onStatus('Meeting listening stopped.');
@@ -155,16 +124,9 @@
     }
 
     async toggle() {
-      if (this.isListening) {
-        return this.stop();
-      }
-      return this.start();
+      return this.isListening ? this.stop() : this.start();
     }
 
-    /**
-     * Transcribe audio captured since the last answer, append to full history,
-     * and return the new text (plus any manual user input).
-     */
     async prepareAnswerPayload(manualText = '') {
       if (this.isProcessingAnswer) {
         throw new Error('Already processing an answer request.');
@@ -174,17 +136,25 @@
 
       try {
         const manual = (manualText || '').trim();
-        let newTranscript = '';
+        const { systemBlob, micBlob } = await this._snapshotAudioForTranscription();
+        const transcriptParts = [];
 
-        const audioBlob = this._getAudioBlobSinceLastAnswer();
-        if (audioBlob && audioBlob.size >= 500) {
-          this.onStatus('Transcribing new meeting audio...');
-          newTranscript = await this._transcribeBlob(audioBlob);
-          if (newTranscript) {
-            this.transcriptBuffer.appendSegment(newTranscript, 'transcription');
-            await this._notifyTranscriptSync();
-          }
-          this.audioChunksSinceLastAnswer = [];
+        if (systemBlob) {
+          this.onStatus(`Transcribing meeting audio (${Math.round(systemBlob.size / 1024)} KB)...`);
+          const meetingText = await this._transcribeBlob(systemBlob, 'meeting');
+          if (meetingText) transcriptParts.push(meetingText);
+        }
+
+        if (micBlob) {
+          this.onStatus(`Transcribing your microphone (${Math.round(micBlob.size / 1024)} KB)...`);
+          const micText = await this._transcribeBlob(micBlob, 'microphone');
+          if (micText) transcriptParts.push(micText);
+        }
+
+        const newTranscript = transcriptParts.join(' ').trim();
+        if (newTranscript) {
+          this.transcriptBuffer.appendSegment(newTranscript, 'transcription');
+          await this._notifyTranscriptSync();
         }
 
         const newSinceLastAnswer = this.transcriptBuffer.getNewSinceLastAnswer();
@@ -196,7 +166,8 @@
           newTranscript,
           manualText: manual,
           fullTranscript: this.transcriptBuffer.getFullTranscript(),
-          stats: this.transcriptBuffer.getStats()
+          stats: this.transcriptBuffer.getStats(),
+          captured: { systemBytes: systemBlob?.size || 0, micBytes: micBlob?.size || 0 }
         };
       } finally {
         this.isProcessingAnswer = false;
@@ -219,21 +190,24 @@
     getStats() {
       return {
         isListening: this.isListening,
-        pendingAudioChunks: this.audioChunksSinceLastAnswer.length,
+        pendingSystemChunks: this.systemChunks.length,
+        pendingMicChunks: this.micChunks.length,
+        hasSystemStream: !!this.systemStream,
+        hasMicStream: !!this.micStream,
         ...this.transcriptBuffer.getStats()
       };
     }
 
-    async _acquireMeetingAudioStream() {
+    async _acquireStreams() {
       if (!navigator.mediaDevices?.getDisplayMedia) {
         throw new Error('System audio capture is not supported in this environment.');
       }
 
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+      this.displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          width: { ideal: 320, max: 640 },
-          height: { ideal: 180, max: 360 },
-          frameRate: { ideal: 5, max: 10 }
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 360, max: 720 },
+          frameRate: { ideal: 5, max: 15 }
         },
         audio: {
           echoCancellation: false,
@@ -246,136 +220,287 @@
         systemAudio: 'include'
       });
 
-      displayStream.getVideoTracks().forEach((track) => {
-        track.stop();
+      // CRITICAL: Do NOT stop the video track on Windows — that kills loopback audio.
+      // Disable video instead to keep the capture session alive.
+      this.displayStream.getVideoTracks().forEach((track) => {
+        track.enabled = false;
       });
 
-      const systemAudioTracks = displayStream.getAudioTracks();
-      if (!systemAudioTracks.length) {
-        displayStream.getTracks().forEach((track) => track.stop());
+      const systemTracks = this.displayStream.getAudioTracks();
+      if (!systemTracks.length) {
         throw new Error(
-          'No system audio track received. On Windows, share "Entire screen" and enable "Share system audio".'
+          'No system audio received. Share "Entire screen" and check "Also share system audio" in the picker.'
         );
       }
 
-      let meetingStream = new MediaStream(systemAudioTracks);
+      systemTracks.forEach((track) => {
+        track.addEventListener('ended', () => this._handleStreamEnded('system'));
+      });
+
+      this.systemStream = new MediaStream(systemTracks);
 
       if (this.includeMicrophone) {
         try {
-          const micStream = await navigator.mediaDevices.getUserMedia({
+          this.micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: true,
+              sampleRate: 48000
             }
           });
-          meetingStream = this._mixAudioStreams(meetingStream, micStream);
-          this.streams.push(micStream);
+          this.micStream.getAudioTracks().forEach((track) => {
+            track.addEventListener('ended', () => this._handleStreamEnded('microphone'));
+          });
         } catch (micErr) {
-          console.warn('Microphone unavailable; using system audio only:', micErr.message);
-          this.onStatus('System audio only (microphone unavailable).');
+          console.warn('Microphone unavailable:', micErr.message);
+          this.onStatus('System audio only — microphone access denied or unavailable.');
         }
       }
-
-      this.streams.push(displayStream);
-      return meetingStream;
     }
 
-    _mixAudioStreams(systemStream, micStream) {
-      this.audioContext = new AudioContext();
-      const destination = this.audioContext.createMediaStreamDestination();
+    _getMimeType() {
+      const candidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus'
+      ];
+      return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || 'audio/webm';
+    }
 
-      const connectStream = (stream) => {
-        if (stream.getAudioTracks().length > 0) {
-          this.audioContext.createMediaStreamSource(stream).connect(destination);
+    _createRecorder(stream, onChunk) {
+      const mimeType = this._getMimeType();
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        audioBitsPerSecond: this.audioBitsPerSecond
+      });
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          onChunk(event.data);
         }
       };
 
-      connectStream(systemStream);
-      connectStream(micStream);
+      recorder.onerror = (event) => {
+        this.onError(event.error?.message || 'MediaRecorder error');
+      };
 
-      systemStream.getAudioTracks().forEach((track) => {
-        track.addEventListener('ended', () => this._handleStreamEnded());
+      return recorder;
+    }
+
+    _startRecorders() {
+      this.systemChunks = [];
+      this.micChunks = [];
+
+      this.systemRecorder = this._createRecorder(this.systemStream, (chunk) => {
+        this.systemChunks.push(chunk);
       });
-      micStream.getAudioTracks().forEach((track) => {
-        track.addEventListener('ended', () => this._handleStreamEnded());
+      this.systemRecorder.start(this.chunkIntervalMs);
+
+      if (this.micStream) {
+        this.micRecorder = this._createRecorder(this.micStream, (chunk) => {
+          this.micChunks.push(chunk);
+        });
+        this.micRecorder.start(this.chunkIntervalMs);
+      }
+
+      this._startLevelMonitor();
+    }
+
+    _stopRecorder(recorder) {
+      if (!recorder || recorder.state === 'inactive') return;
+      try {
+        recorder.stop();
+      } catch (err) {
+        console.warn('Error stopping recorder:', err);
+      }
+    }
+
+    async _finalizeRecorder(recorder, chunks) {
+      if (!recorder || recorder.state === 'inactive') {
+        if (!chunks.length) return null;
+        const blob = new Blob(chunks, { type: this._getMimeType() });
+        chunks.length = 0;
+        return blob.size >= 500 ? blob : null;
+      }
+
+      return new Promise((resolve) => {
+        const finalChunks = [...chunks];
+        const mimeType = recorder.mimeType || this._getMimeType();
+
+        const onData = (event) => {
+          if (event.data && event.data.size > 0) {
+            finalChunks.push(event.data);
+          }
+        };
+
+        const onStop = () => {
+          recorder.removeEventListener('dataavailable', onData);
+          chunks.length = 0;
+          if (!finalChunks.length) {
+            resolve(null);
+            return;
+          }
+          const blob = new Blob(finalChunks, { type: mimeType });
+          resolve(blob.size >= 500 ? blob : null);
+        };
+
+        recorder.addEventListener('dataavailable', onData);
+        recorder.addEventListener('stop', onStop, { once: true });
+
+        try {
+          if (recorder.state === 'recording') {
+            recorder.requestData();
+          }
+          recorder.stop();
+        } catch (err) {
+          recorder.removeEventListener('dataavailable', onData);
+          resolve(null);
+        }
       });
-
-      return destination.stream;
     }
 
-    _attachStream(stream) {
-      stream.getAudioTracks().forEach((track) => {
-        track.addEventListener('ended', () => this._handleStreamEnded());
-      });
-      this.streams.push(stream);
+    async _snapshotAudioForTranscription() {
+      const wasListening = this.isListening;
+      this._stopLevelMonitor();
+
+      const [systemBlob, micBlob] = await Promise.all([
+        this._finalizeRecorder(this.systemRecorder, this.systemChunks),
+        this._finalizeRecorder(this.micRecorder, this.micChunks)
+      ]);
+
+      this.systemRecorder = null;
+      this.micRecorder = null;
+
+      if (wasListening && this.systemStream && !this.systemStream.getAudioTracks().some((t) => t.readyState === 'ended')) {
+        this._startRecorders();
+      } else if (wasListening) {
+        this.onError('System audio track ended. Toggle listening to reconnect.');
+        this._setListening(false);
+      }
+
+      return { systemBlob, micBlob };
     }
 
-    _handleStreamEnded() {
-      if (!this.isListening) return;
-      this.onError('Audio capture ended. Toggle listening to reconnect.');
-      this.stop();
-    }
-
-    _getAudioBlobSinceLastAnswer() {
-      if (!this.audioChunksSinceLastAnswer.length) return null;
-      const mimeType = this.mediaRecorder?.mimeType || 'audio/webm';
-      return new Blob(this.audioChunksSinceLastAnswer, { type: mimeType });
-    }
-
-    async _transcribeBlob(blob) {
+    async _transcribeBlob(blob, source) {
       if (!this.transcribeAudio) {
         throw new Error('Transcription service not configured.');
       }
 
-      if (blob.size <= this.maxTranscribeBytes) {
-        const base64 = await this._blobToBase64(blob);
-        const result = await this.transcribeAudio(base64);
-        if (result?.success && result.transcript) {
-          return result.transcript.trim();
-        }
-        throw new Error(result?.error || 'Transcription failed.');
+      if (blob.size > this.maxTranscribeBytes) {
+        this.onStatus('Audio segment is large — transcribing in parts...');
+        return this._transcribeBlobInTimeParts(blob, source);
       }
 
-      return this._transcribeLargeBlob(blob);
+      const base64 = await this._blobToBase64(blob);
+      const result = await this.transcribeAudio(base64, {
+        source,
+        mimeType: blob.type || this._getMimeType()
+      });
+
+      if (result?.success && result.transcript) {
+        const text = result.transcript.trim();
+        return this._isInaudible(text) ? '' : text;
+      }
+
+      throw new Error(result?.error || 'Transcription failed.');
     }
 
-    async _transcribeLargeBlob(blob) {
-      const chunkCount = Math.ceil(blob.size / this.maxTranscribeBytes);
-      const chunkSize = Math.ceil(blob.size / chunkCount);
+    async _transcribeBlobInTimeParts(blob, source) {
+      const partSize = Math.floor(this.maxTranscribeBytes * 0.8);
       const transcripts = [];
+      let offset = 0;
+      let part = 1;
 
-      for (let i = 0; i < chunkCount; i++) {
-        const start = i * chunkSize;
-        const end = Math.min(start + chunkSize, blob.size);
-        const chunkBlob = blob.slice(start, end, blob.type);
-        if (chunkBlob.size < 500) continue;
-
-        this.onStatus(`Transcribing audio part ${i + 1} of ${chunkCount}...`);
-        const base64 = await this._blobToBase64(chunkBlob);
-        const result = await this.transcribeAudio(base64);
-        if (result?.success && result.transcript) {
-          transcripts.push(result.transcript.trim());
+      while (offset < blob.size) {
+        const end = Math.min(offset + partSize, blob.size);
+        const slice = blob.slice(offset, end, blob.type);
+        if (slice.size >= 500) {
+          this.onStatus(`Transcribing ${source} audio part ${part}...`);
+          const base64 = await this._blobToBase64(slice);
+          const result = await this.transcribeAudio(base64, { source, mimeType: blob.type });
+          if (result?.success && result.transcript) {
+            const text = result.transcript.trim();
+            if (text && !this._isInaudible(text)) {
+              transcripts.push(text);
+            }
+          }
+          part += 1;
         }
+        offset = end;
       }
 
       return transcripts.join(' ').trim();
     }
 
+    _isInaudible(text) {
+      const normalized = text.toLowerCase().replace(/[\[\]()]/g, '').trim();
+      return !normalized || normalized === 'inaudible' || normalized === 'no speech' || normalized === 'silence';
+    }
+
     _blobToBase64(blob) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64 = reader.result.split(',')[1];
-          resolve(base64);
-        };
+        reader.onloadend = () => resolve(reader.result.split(',')[1]);
         reader.onerror = reject;
         reader.readAsDataURL(blob);
       });
     }
 
+    _startLevelMonitor() {
+      this._stopLevelMonitor();
+      if (!this.systemStream) return;
+
+      try {
+        this.levelContext = new AudioContext();
+        this.levelAnalyser = this.levelContext.createAnalyser();
+        this.levelAnalyser.fftSize = 256;
+        const source = this.levelContext.createMediaStreamSource(this.systemStream);
+        source.connect(this.levelAnalyser);
+
+        const data = new Uint8Array(this.levelAnalyser.frequencyBinCount);
+        this.levelMonitorId = setInterval(() => {
+          if (!this.levelAnalyser) return;
+          this.levelAnalyser.getByteFrequencyData(data);
+          const avg = data.reduce((sum, v) => sum + v, 0) / data.length;
+          const micActive = this.micStream?.getAudioTracks().some((t) => t.enabled && t.readyState === 'live');
+          this.onLevelUpdate({
+            systemLevel: Math.round(avg),
+            micActive: !!micActive,
+            capturing: avg > 2
+          });
+        }, 500);
+
+        if (this.levelContext.state === 'suspended') {
+          this.levelContext.resume().catch(() => {});
+        }
+      } catch (err) {
+        console.warn('Audio level monitor unavailable:', err.message);
+      }
+    }
+
+    _stopLevelMonitor() {
+      if (this.levelMonitorId) {
+        clearInterval(this.levelMonitorId);
+        this.levelMonitorId = null;
+      }
+      if (this.levelContext) {
+        this.levelContext.close().catch(() => {});
+        this.levelContext = null;
+      }
+      this.levelAnalyser = null;
+    }
+
+    _handleStreamEnded(source) {
+      if (!this.isListening) return;
+      this.onError(`${source} capture ended. Toggle listening to reconnect.`);
+      this.stop();
+    }
+
     _cleanupStreams() {
-      this.streams.forEach((stream) => {
+      this._stopLevelMonitor();
+      [this.systemStream, this.micStream, this.displayStream].forEach((stream) => {
+        if (!stream) return;
         stream.getTracks().forEach((track) => {
           try {
             track.stop();
@@ -384,12 +509,9 @@
           }
         });
       });
-      this.streams = [];
-
-      if (this.audioContext) {
-        this.audioContext.close().catch(() => {});
-        this.audioContext = null;
-      }
+      this.systemStream = null;
+      this.micStream = null;
+      this.displayStream = null;
     }
 
     _setListening(listening) {
@@ -409,13 +531,13 @@
 
     _formatCaptureError(err) {
       if (err.name === 'NotAllowedError') {
-        return 'Screen/audio capture permission denied. Allow capture and enable "Share system audio".';
+        return 'Capture denied. Share Entire Screen and enable "Also share system audio".';
       }
       if (err.name === 'NotFoundError') {
-        return 'No capture source found. Share your screen with system audio enabled.';
+        return 'No capture source found.';
       }
       if (err.name === 'NotReadableError') {
-        return 'Audio capture device is busy or unavailable.';
+        return 'Audio device is busy. Close other apps using the microphone or screen capture.';
       }
       return err.message || 'Failed to start meeting audio capture.';
     }

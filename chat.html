@@ -977,9 +977,11 @@
     let listeningTimer = null;
     let hasPendingScreenshot = false;
 
+    let audioLevelHint = 'Waiting for audio…';
+
     const meetingListener = new MeetingListening.ContinuousListeningManager({
       includeMicrophone: true,
-      chunkIntervalMs: 5000,
+      chunkIntervalMs: 2000,
       onStatus: (status) => addMessage(status, 'system'),
       onError: (error) => addMessage(`Meeting audio: ${error}`, 'error'),
       onListeningChange: (listening) => {
@@ -990,11 +992,18 @@
           handleListeningStopped();
         }
       },
-      transcribeAudio: (base64Audio) => {
+      onLevelUpdate: ({ systemLevel, micActive, capturing }) => {
+        const bars = capturing ? '▮▮▮' : '▯▯▯';
+        audioLevelHint = `System audio level: ${systemLevel}${micActive ? ' • Mic active' : ' • Mic off'} ${bars}`;
+        if (isListening && transcriptInterim) {
+          transcriptInterim.textContent = audioLevelHint;
+        }
+      },
+      transcribeAudio: (base64Audio, options) => {
         if (!whysperAPI?.sendAudioForTranscription) {
           return Promise.resolve({ success: false, error: 'Transcription unavailable' });
         }
-        return whysperAPI.sendAudioForTranscription(base64Audio);
+        return whysperAPI.sendAudioForTranscription(base64Audio, options);
       },
       syncTranscript: (data) => {
         if (whysperAPI?.syncMeetingTranscript) {
@@ -1010,7 +1019,7 @@
       if (full) {
         updateLiveTranscript(full, pending ? `(new since last answer: ${pending.substring(0, 120)}${pending.length > 120 ? '…' : ''})` : '');
       } else if (isListening) {
-        updateLiveTranscript('', isListening ? 'Capturing meeting audio…' : '');
+        updateLiveTranscript('', audioLevelHint);
       }
     }
 
@@ -1198,7 +1207,7 @@
 
       showLiveTranscriptBox();
       showListeningAnimation();
-      updateLiveTranscript(meetingListener.getFullTranscript(), 'Capturing meeting audio (system loopback)...');
+      updateLiveTranscript(meetingListener.getFullTranscript(), audioLevelHint);
     }
 
     function handleListeningStopped() {
@@ -1238,8 +1247,17 @@
         const textToSend = prepared.payload;
 
         if (!textToSend) {
-          addMessage('Nothing new to answer yet. Keep listening or type a question.', 'system');
+          const stats = prepared.captured || {};
+          addMessage(
+            `Nothing transcribed yet. System: ${Math.round((stats.systemBytes || 0) / 1024)}KB, Mic: ${Math.round((stats.micBytes || 0) / 1024)}KB captured. ` +
+            'Keep listening longer, ensure system audio is shared, then press Enter again — or type a question manually.',
+            'system'
+          );
           return;
+        }
+
+        if (prepared.newTranscript) {
+          addMessage(`Heard: "${prepared.newTranscript.substring(0, 200)}${prepared.newTranscript.length > 200 ? '…' : ''}"`, 'transcription');
         }
 
         addMessage(textToSend, 'user');
