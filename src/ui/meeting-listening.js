@@ -209,15 +209,7 @@
           height: { ideal: 360, max: 720 },
           frameRate: { ideal: 5, max: 15 }
         },
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          suppressLocalAudioPlayback: false
-        },
-        preferCurrentTab: false,
-        selfBrowserSurface: 'exclude',
-        systemAudio: 'include'
+        audio: true
       });
 
       // CRITICAL: Do NOT stop the video track on Windows — that kills loopback audio.

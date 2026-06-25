@@ -114,11 +114,21 @@ class ApplicationController {
   setupPermissions() {
     session.defaultSession.setPermissionRequestHandler(
       (webContents, permission, callback) => {
-        const allowedPermissions = ["microphone", "camera", "display-capture"];
+        const allowedPermissions = ["microphone", "camera", "display-capture", "media"];
         const granted = allowedPermissions.includes(permission);
 
-        logger.debug("Permission request", { permission, granted });
+        logger.info("Permission request", { permission, granted });
         callback(granted);
+      }
+    );
+
+    session.defaultSession.setPermissionCheckHandler(
+      (webContents, permission, requestingOrigin, details) => {
+        const allowedPermissions = ["microphone", "camera", "display-capture", "media"];
+        const granted = allowedPermissions.includes(permission);
+
+        logger.info("Permission check request", { permission, granted });
+        return granted;
       }
     );
 
@@ -127,19 +137,25 @@ class ApplicationController {
 
   setupSystemAudioCapture() {
     session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+      logger.info("setDisplayMediaRequestHandler invoked", {
+        requestVideo: !!request.video,
+        requestAudio: !!request.audio,
+        userGesture: request.userGesture
+      });
       try {
         const sources = await desktopCapturer.getSources({
-          types: ["screen"],
-          thumbnailSize: { width: 150, height: 150 },
+          types: ["screen", "window"],
+          thumbnailSize: { width: 0, height: 0 },
         });
 
         if (!sources.length) {
-          logger.warn("No screen sources available for system audio capture");
+          logger.warn("No screen or window sources available for system audio capture");
           callback({});
           return;
         }
 
         const primarySource =
+          sources.find((source) => source.id.startsWith("screen:")) ||
           sources.find((source) => /^screen|^entire|display/i.test(source.name)) ||
           sources[0];
 
@@ -161,7 +177,7 @@ class ApplicationController {
         logger.error("System audio capture handler failed", { error: error.message });
         callback({});
       }
-    }, { useSystemPicker: false });
+    });
   }
 
   setupGlobalShortcuts() {
@@ -188,7 +204,11 @@ class ApplicationController {
 
     Object.entries(shortcuts).forEach(([accelerator, handler]) => {
       const success = globalShortcut.register(accelerator, handler);
-      logger.debug("Global shortcut registered", { accelerator, success });
+      if (!success) {
+        logger.warn("Global shortcut registration failed - accelerator might be in use by another app", { accelerator });
+      } else {
+        logger.info("Global shortcut registered", { accelerator });
+      }
     });
   }
 
