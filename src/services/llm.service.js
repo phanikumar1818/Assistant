@@ -10,18 +10,18 @@ class LLMService {
     this.isInitialized = false;
     this.requestCount = 0;
     this.errorCount = 0;
-    
+
     this.initializeClient();
   }
 
   initializeClient() {
     const apiKey = config.getApiKey('GEMINI');
-    
+
     // Show partial key for debugging (first 8 chars + last 4 chars)
     const maskedKey = apiKey ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` : 'NOT SET';
-    
+
     if (!apiKey || apiKey === 'your-api-key-here') {
-      logger.warn('Gemini API key not configured', { 
+      logger.warn('Gemini API key not configured', {
         keyExists: !!apiKey,
         isPlaceholder: apiKey === 'your-api-key-here',
         hint: 'Set GEMINI_API_KEY in your .env file'
@@ -31,18 +31,18 @@ class LLMService {
 
     try {
       this.client = new GoogleGenerativeAI(apiKey);
-      this.model = this.client.getGenerativeModel({ 
-        model: config.get('llm.gemini.model') 
+      this.model = this.client.getGenerativeModel({
+        model: config.get('llm.gemini.model')
       });
       this.isInitialized = true;
       this.currentApiKeyPrefix = apiKey.substring(0, 8);
-      
+
       logger.info('Gemini AI client initialized successfully', {
         model: config.get('llm.gemini.model'),
         apiKeyPreview: maskedKey
       });
     } catch (error) {
-      logger.error('Failed to initialize Gemini client', { 
+      logger.error('Failed to initialize Gemini client', {
         error: error.message,
         apiKeyPreview: maskedKey
       });
@@ -56,7 +56,7 @@ class LLMService {
 
     const startTime = Date.now();
     this.requestCount++;
-    
+
     try {
       logger.info('Processing text with LLM', {
         activeSkill,
@@ -67,7 +67,7 @@ class LLMService {
       });
 
       const geminiRequest = this.buildGeminiRequest(text, activeSkill, sessionMemory, programmingLanguage);
-      
+
       // Use Electron net module directly (SDK's fetch fails in Electron)
       // This is much faster than waiting for SDK retries to fail
       let response;
@@ -81,7 +81,7 @@ class LLMService {
         });
         response = await this.executeRequest(geminiRequest);
       }
-      
+
       logger.logPerformance('LLM text processing', startTime, {
         activeSkill,
         textLength: text.length,
@@ -112,7 +112,7 @@ class LLMService {
       if (config.get('llm.gemini.fallbackEnabled')) {
         return this.generateFallbackResponse(text, activeSkill);
       }
-      
+
       throw error;
     }
   }
@@ -124,7 +124,7 @@ class LLMService {
 
     const startTime = Date.now();
     this.requestCount++;
-    
+
     try {
       logger.info('Processing transcription with intelligent response', {
         activeSkill,
@@ -135,7 +135,7 @@ class LLMService {
       });
 
       const geminiRequest = this.buildIntelligentTranscriptionRequest(text, activeSkill, sessionMemory, programmingLanguage);
-      
+
       // Use Electron net module directly (SDK's fetch fails in Electron)
       // This is much faster than waiting for SDK retries to fail
       let response;
@@ -149,7 +149,7 @@ class LLMService {
         });
         response = await this.executeRequest(geminiRequest);
       }
-      
+
       logger.logPerformance('LLM transcription processing', startTime, {
         activeSkill,
         textLength: text.length,
@@ -172,7 +172,7 @@ class LLMService {
     } catch (error) {
       this.errorCount++;
       const errorAnalysis = this.analyzeError(error);
-      
+
       logger.error('LLM transcription processing failed', {
         error: error.message,
         activeSkill,
@@ -185,7 +185,7 @@ class LLMService {
       if (config.get('llm.gemini.fallbackEnabled')) {
         return this.generateIntelligentFallbackResponse(text, activeSkill, errorAnalysis);
       }
-      
+
       throw error;
     }
   }
@@ -205,7 +205,7 @@ class LLMService {
 
     const startTime = Date.now();
     this.requestCount++;
-    
+
     try {
       logger.info('Processing screenshot with user prompt', {
         activeSkill,
@@ -217,7 +217,7 @@ class LLMService {
       });
 
       const geminiRequest = this.buildVisionRequest(imageData, userPrompt, activeSkill, sessionMemory, programmingLanguage);
-      
+
       let response;
       try {
         response = await this.executeAlternativeRequest(geminiRequest);
@@ -228,7 +228,7 @@ class LLMService {
         });
         response = await this.executeRequest(geminiRequest);
       }
-      
+
       logger.logPerformance('LLM vision processing', startTime, {
         activeSkill,
         promptLength: userPrompt.length,
@@ -251,7 +251,7 @@ class LLMService {
     } catch (error) {
       this.errorCount++;
       const errorAnalysis = this.analyzeError(error);
-      
+
       logger.error('LLM vision processing failed', {
         error: error.message,
         activeSkill,
@@ -264,7 +264,7 @@ class LLMService {
       if (config.get('llm.gemini.fallbackEnabled')) {
         return this.generateVisionFallbackResponse(userPrompt, activeSkill, errorAnalysis);
       }
-      
+
       throw error;
     }
   }
@@ -304,7 +304,7 @@ class LLMService {
 
     // Add the current request with image and text
     const userParts = [];
-    
+
     // Add image data
     if (imageData && imageData.base64) {
       userParts.push({
@@ -314,10 +314,10 @@ class LLMService {
         }
       });
     }
-    
+
     // Add user prompt
     userParts.push({ text: userPrompt || 'Please analyze this screenshot and provide helpful insights.' });
-    
+
     request.contents.push({
       role: 'user',
       parts: userParts
@@ -379,9 +379,9 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
    * Generate fallback response for vision requests
    */
   generateVisionFallbackResponse(userPrompt, activeSkill, errorAnalysis = null) {
-    logger.info('Generating fallback response for vision request', { 
+    logger.info('Generating fallback response for vision request', {
       activeSkill,
-      errorType: errorAnalysis?.type 
+      errorType: errorAnalysis?.type
     });
 
     if (errorAnalysis && errorAnalysis.isQuotaError) {
@@ -413,7 +413,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
   buildGeminiRequest(text, activeSkill, sessionMemory, programmingLanguage) {
     // Check if we have the new conversation history format
     const sessionManager = require('../managers/session.manager');
-    
+
     if (sessionManager && typeof sessionManager.getConversationHistory === 'function') {
       const conversationHistory = sessionManager.getConversationHistory(15);
       const skillContext = sessionManager.getSkillContext(activeSkill, programmingLanguage);
@@ -422,8 +422,8 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
 
     // Fallback to old method for compatibility - now with programming language support
     const requestComponents = promptLoader.getRequestComponents(
-      activeSkill, 
-      text, 
+      activeSkill,
+      text,
       sessionMemory,
       programmingLanguage
     );
@@ -443,7 +443,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
       request.systemInstruction = {
         parts: [{ text: requestComponents.skillPrompt }]
       };
-      
+
       logger.debug('Using language-enhanced system instruction for skill', {
         skill: activeSkill,
         programmingLanguage: programmingLanguage || 'not specified',
@@ -476,7 +476,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
       request.systemInstruction = {
         parts: [{ text: skillContext.skillPrompt }]
       };
-      
+
       logger.debug('Using skill context prompt as system instruction', {
         skill: activeSkill,
         programmingLanguage: programmingLanguage || 'not specified',
@@ -489,10 +489,10 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
     // Add conversation history (excluding system messages) with validation
     const conversationContents = conversationHistory
       .filter(event => {
-        return event.role !== 'system' && 
-               event.content && 
-               typeof event.content === 'string' && 
-               event.content.trim().length > 0;
+        return event.role !== 'system' &&
+          event.content &&
+          typeof event.content === 'string' &&
+          event.content.trim().length > 0;
       })
       .map(event => {
         const content = event.content.trim();
@@ -538,7 +538,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
 
     // Check if we have the new conversation history format
     const sessionManager = require('../managers/session.manager');
-    
+
     if (sessionManager && typeof sessionManager.getConversationHistory === 'function') {
       const conversationHistory = sessionManager.getConversationHistory(10);
       const skillContext = sessionManager.getSkillContext(activeSkill, programmingLanguage);
@@ -595,7 +595,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
     // Build intelligent system instruction combining skill prompt and filtering rules
     const intelligentPrompt = this.getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage);
     let combinedInstruction = intelligentPrompt;
-    
+
     // Use the skill prompt from context (which may already include programming language)
     if (skillContext.skillPrompt) {
       combinedInstruction = `${skillContext.skillPrompt}\n\n${intelligentPrompt}`;
@@ -609,10 +609,10 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
     const conversationContents = conversationHistory
       .filter(event => {
         // Filter out system messages and ensure content exists and is valid
-        return event.role !== 'system' && 
-               event.content && 
-               typeof event.content === 'string' && 
-               event.content.trim().length > 0;
+        return event.role !== 'system' &&
+          event.content &&
+          typeof event.content === 'string' &&
+          event.content.trim().length > 0;
       })
       .slice(-8) // Keep last 8 exchanges for context
       .map(event => {
@@ -711,7 +711,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
   async executeRequest(geminiRequest) {
     const maxRetries = config.get('llm.gemini.maxRetries');
     const timeout = config.get('llm.gemini.timeout');
-    
+
     // Add request debugging
     logger.debug('Executing Gemini request', {
       hasModel: !!this.model,
@@ -722,30 +722,30 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
       nodeVersion: process.version,
       platform: process.platform
     });
-    
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         // Pre-flight check
         await this.performPreflightCheck();
-        
-        const timeoutPromise = new Promise((_, reject) => 
+
+        const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Request timeout')), timeout)
         );
-        
+
         logger.debug(`Gemini API attempt ${attempt} starting`, {
           timestamp: new Date().toISOString(),
           timeout
         });
-        
+
         const requestPromise = this.model.generateContent(geminiRequest);
         const result = await Promise.race([requestPromise, timeoutPromise]);
-        
+
         if (!result.response) {
           throw new Error('Empty response from Gemini API');
         }
 
         const responseText = result.response.text();
-        
+
         if (!responseText || responseText.trim().length === 0) {
           throw new Error('Empty text content in Gemini response');
         }
@@ -758,7 +758,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
         return responseText.trim();
       } catch (error) {
         const errorInfo = this.analyzeError(error);
-        
+
         // Enhanced error logging for fetch failures
         if (errorInfo.type === 'NETWORK_ERROR') {
           logger.error('Network error details', {
@@ -773,7 +773,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
             userAgent: this.getUserAgent()
           });
         }
-        
+
         logger.warn(`Gemini API attempt ${attempt} failed`, {
           error: error.message,
           errorType: errorInfo.type,
@@ -792,12 +792,12 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
         // Use exponential backoff with jitter for network errors
         const baseDelay = errorInfo.isNetworkError ? 2000 : 1000;
         const delay = baseDelay * attempt + Math.random() * 1000;
-        
+
         logger.debug(`Waiting ${delay}ms before retry ${attempt + 1}`, {
           baseDelay,
           isNetworkError: errorInfo.isNetworkError
         });
-        
+
         await this.delay(delay);
       }
     }
@@ -807,16 +807,16 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     // Quick connectivity check
     try {
       const startTime = Date.now();
-      await this.testNetworkConnection({ 
-        host: 'generativelanguage.googleapis.com', 
-        port: 443, 
-        name: 'Gemini API Endpoint' 
+      await this.testNetworkConnection({
+        host: 'generativelanguage.googleapis.com',
+        port: 443,
+        name: 'Gemini API Endpoint'
       });
       const latency = Date.now() - startTime;
-      
+
       logger.debug('Preflight check passed', { latency });
     } catch (error) {
-      logger.warn('Preflight check failed', { 
+      logger.warn('Preflight check failed', {
         error: error.message,
         suggestion: 'Network connectivity issue detected before API call'
       });
@@ -838,37 +838,37 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
 
   analyzeError(error) {
     const errorMessage = error.message.toLowerCase();
-    
+
     // Network connectivity errors
-    if (errorMessage.includes('fetch failed') || 
-        errorMessage.includes('network error') ||
-        errorMessage.includes('enotfound') ||
-        errorMessage.includes('econnrefused') ||
-        errorMessage.includes('timeout')) {
+    if (errorMessage.includes('fetch failed') ||
+      errorMessage.includes('network error') ||
+      errorMessage.includes('enotfound') ||
+      errorMessage.includes('econnrefused') ||
+      errorMessage.includes('timeout')) {
       return {
         type: 'NETWORK_ERROR',
         isNetworkError: true,
         suggestedAction: 'Check internet connection and firewall settings'
       };
     }
-    
+
     // API key errors
-    if (errorMessage.includes('unauthorized') || 
-        errorMessage.includes('invalid api key') ||
-        errorMessage.includes('forbidden')) {
+    if (errorMessage.includes('unauthorized') ||
+      errorMessage.includes('invalid api key') ||
+      errorMessage.includes('forbidden')) {
       return {
         type: 'AUTH_ERROR',
         isNetworkError: false,
         suggestedAction: 'Verify Gemini API key configuration'
       };
     }
-    
+
     // Rate limiting / Quota exceeded
-    if (errorMessage.includes('quota') || 
-        errorMessage.includes('rate limit') ||
-        errorMessage.includes('too many requests') ||
-        errorMessage.includes('429') ||
-        errorMessage.includes('resource_exhausted')) {
+    if (errorMessage.includes('quota') ||
+      errorMessage.includes('rate limit') ||
+      errorMessage.includes('too many requests') ||
+      errorMessage.includes('429') ||
+      errorMessage.includes('resource_exhausted')) {
       return {
         type: 'QUOTA_EXCEEDED',
         isNetworkError: false,
@@ -876,7 +876,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
         isQuotaError: true
       };
     }
-    
+
     // Timeout errors
     if (errorMessage.includes('request timeout')) {
       return {
@@ -885,7 +885,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
         suggestedAction: 'Check network latency or increase timeout'
       };
     }
-    
+
     return {
       type: 'UNKNOWN_ERROR',
       isNetworkError: false,
@@ -920,7 +920,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     return new Promise((resolve, reject) => {
       const net = require('net');
       const socket = new net.Socket();
-      
+
       const timeout = setTimeout(() => {
         socket.destroy();
         reject(new Error(`Connection timeout to ${host}:${port}`));
@@ -952,7 +952,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     };
 
     const response = fallbackResponses[activeSkill] || fallbackResponses.default;
-    
+
     return {
       response,
       metadata: {
@@ -965,9 +965,9 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
   }
 
   generateIntelligentFallbackResponse(text, activeSkill, errorAnalysis = null) {
-    logger.info('Generating intelligent fallback response for transcription', { 
+    logger.info('Generating intelligent fallback response for transcription', {
       activeSkill,
-      errorType: errorAnalysis?.type 
+      errorType: errorAnalysis?.type
     });
 
     // If it's a quota error, show a specific message
@@ -1001,7 +1001,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     const textLower = text.toLowerCase();
     const relevantKeywords = skillKeywords[activeSkill] || [];
     const hasRelevantKeywords = relevantKeywords.some(keyword => textLower.includes(keyword));
-    
+
     // Check for question indicators
     const questionIndicators = ['how', 'what', 'why', 'when', 'where', 'can you', 'could you', 'should i', '?'];
     const seemsLikeQuestion = questionIndicators.some(indicator => textLower.includes(indicator));
@@ -1012,7 +1012,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     } else {
       response = `Yeah, I'm listening. Ask your question relevant to ${activeSkill}.`;
     }
-    
+
     return {
       response,
       metadata: {
@@ -1034,7 +1034,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
       // First check network connectivity
       const networkCheck = await this.checkNetworkConnectivity();
       const hasNetworkIssues = networkCheck.tests.some(test => !test.success);
-      
+
       if (hasNetworkIssues) {
         logger.warn('Network connectivity issues detected', networkCheck);
       }
@@ -1054,28 +1054,28 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
       const result = await this.model.generateContent(testRequest);
       const latency = Date.now() - startTime;
       const response = result.response.text();
-      
-      logger.info('Connection test successful', { 
-        response, 
+
+      logger.info('Connection test successful', {
+        response,
         latency,
         networkCheck: hasNetworkIssues ? 'issues_detected' : 'healthy'
       });
-      
-      return { 
-        success: true, 
+
+      return {
+        success: true,
         response: response.trim(),
         latency,
         networkConnectivity: networkCheck
       };
     } catch (error) {
       const errorAnalysis = this.analyzeError(error);
-      logger.error('Connection test failed', { 
+      logger.error('Connection test failed', {
         error: error.message,
         errorAnalysis
       });
-      
-      return { 
-        success: false, 
+
+      return {
+        success: false,
         error: error.message,
         errorAnalysis,
         networkConnectivity: await this.checkNetworkConnectivity().catch(() => null)
@@ -1087,7 +1087,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     process.env.GEMINI_API_KEY = newApiKey;
     this.isInitialized = false;
     this.initializeClient();
-    
+
     logger.info('API key updated and client reinitialized');
   }
 
@@ -1153,9 +1153,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
       const defaultModel = config.get('llm.gemini.model') || 'gemini-2.5-flash';
       const audioModels = [
         defaultModel,
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-        'gemini-1.5-flash'
+        'gemini-2.5-flash'
       ].filter((value, index, self) => self.indexOf(value) === index);
 
       let response = null;
@@ -1180,10 +1178,10 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
       }
 
       const processingTime = Date.now() - startTime;
-      
+
       // Clean up the response - remove any extra formatting
       let transcript = response.trim();
-      
+
       // Remove common prefixes that Gemini might add
       const prefixesToRemove = [
         'Here is the transcription:',
@@ -1192,13 +1190,13 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
         'The audio says:',
         '"',
       ];
-      
+
       for (const prefix of prefixesToRemove) {
         if (transcript.toLowerCase().startsWith(prefix.toLowerCase())) {
           transcript = transcript.substring(prefix.length).trim();
         }
       }
-      
+
       // Remove trailing quotes if present
       if (transcript.endsWith('"')) {
         transcript = transcript.slice(0, -1).trim();
@@ -1235,14 +1233,14 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
   async executeAudioRequest(geminiRequest, modelOverride = null) {
     const apiKey = config.getApiKey('GEMINI');
     const audioModel = modelOverride || 'gemini-2.0-flash';
-    
+
     logger.info('Using audio transcription model', {
       model: audioModel,
       contentsCount: geminiRequest.contents?.length || 0
     });
-    
+
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${audioModel}:generateContent?key=${apiKey}`;
-    
+
     const postData = JSON.stringify(geminiRequest);
 
     try {
@@ -1259,16 +1257,16 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
   async executeAlternativeRequest(geminiRequest) {
     const apiKey = config.getApiKey('GEMINI');
     const model = config.get('llm.gemini.model');
-    
+
     logger.info('Using alternative request method with Electron net module', {
       model,
       hasSystemInstruction: !!geminiRequest.systemInstruction,
       contentsCount: geminiRequest.contents?.length || 0
     });
-    
+
     // Use v1beta endpoint to support systemInstruction and other advanced features
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    
+
     const postData = JSON.stringify(geminiRequest);
 
     // Try using Electron's net module first (works better in Electron)
@@ -1286,7 +1284,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
 
   async executeWithElectronNet(url, postData) {
     const { net } = require('electron');
-    
+
     return new Promise((resolve, reject) => {
       const request = net.request({
         method: 'POST',
@@ -1315,12 +1313,12 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
 
             const parsedResponse = JSON.parse(responseData);
             const text = this.extractTextFromResponse(parsedResponse);
-            
+
             logger.info('Electron net request successful', {
               responseLength: text.length,
               statusCode: response.statusCode
             });
-            
+
             resolve(text);
           } catch (parseError) {
             logger.error('Failed to parse Electron net response', {
@@ -1349,7 +1347,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     const https = require('https');
     const { URL } = require('url');
     const parsedUrl = new URL(url);
-    
+
     const options = {
       hostname: parsedUrl.hostname,
       port: 443,
@@ -1366,11 +1364,11 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     return new Promise((resolve, reject) => {
       const req = https.request(options, (res) => {
         let data = '';
-        
+
         res.on('data', (chunk) => {
           data += chunk;
         });
-        
+
         res.on('end', () => {
           try {
             if (res.statusCode !== 200) {
@@ -1381,15 +1379,15 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
               reject(new Error(`HTTP ${res.statusCode}: ${data}`));
               return;
             }
-            
+
             const response = JSON.parse(data);
             const text = this.extractTextFromResponse(response);
-            
+
             logger.info('HTTPS request successful', {
               responseLength: text.length,
               statusCode: res.statusCode
             });
-            
+
             resolve(text);
           } catch (parseError) {
             logger.error('Failed to parse HTTPS response', {
@@ -1400,16 +1398,16 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
           }
         });
       });
-      
+
       req.on('error', (error) => {
         reject(new Error(`HTTPS request failed: ${error.message}`));
       });
-      
+
       req.on('timeout', () => {
         req.destroy();
         reject(new Error('HTTPS request timeout'));
       });
-      
+
       req.write(postData);
       req.end();
     });
@@ -1426,19 +1424,19 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
         });
       }
     }
-    
+
     if (!response.candidates || !response.candidates[0] || !response.candidates[0].content) {
       logger.error('Invalid response structure', { response });
       throw new Error('Invalid response structure from Gemini API');
     }
-    
+
     const text = response.candidates[0].content.parts[0].text;
-    
+
     if (!text || text.trim().length === 0) {
       logger.error('Empty text in response', { response });
       throw new Error('Empty text content in Gemini response');
     }
-    
+
     return text.trim();
   }
 }

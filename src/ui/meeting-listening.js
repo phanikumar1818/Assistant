@@ -69,10 +69,14 @@
       this.displayStream = null;
       this.systemStream = null;
       this.micStream = null;
+      this.mixedStream = null;
       this.systemRecorder = null;
       this.micRecorder = null;
+      this.mixedRecorder = null;
       this.systemChunks = [];
       this.micChunks = [];
+      this.mixedChunks = [];
+      this.audioContext = null;
       this.levelContext = null;
       this.levelAnalyser = null;
       this.levelMonitorId = null;
@@ -111,12 +115,9 @@
 
     stop() {
       this._stopLevelMonitor();
-      this._stopRecorder(this.systemRecorder);
-      this._stopRecorder(this.micRecorder);
-      this.systemRecorder = null;
-      this.micRecorder = null;
-      this.systemChunks = [];
-      this.micChunks = [];
+      this._stopRecorder(this.mixedRecorder);
+      this.mixedRecorder = null;
+      this.mixedChunks = [];
       this._cleanupStreams();
       this._setListening(false);
       this.onStatus('Meeting listening stopped.');
@@ -136,19 +137,13 @@
 
       try {
         const manual = (manualText || '').trim();
-        const { systemBlob, micBlob } = await this._snapshotAudioForTranscription();
+        const { mixedBlob } = await this._snapshotAudioForTranscription();
         const transcriptParts = [];
 
-        if (systemBlob) {
-          this.onStatus(`Transcribing meeting audio (${Math.round(systemBlob.size / 1024)} KB)...`);
-          const meetingText = await this._transcribeBlob(systemBlob, 'meeting');
-          if (meetingText) transcriptParts.push(meetingText);
-        }
-
-        if (micBlob) {
-          this.onStatus(`Transcribing your microphone (${Math.round(micBlob.size / 1024)} KB)...`);
-          const micText = await this._transcribeBlob(micBlob, 'microphone');
-          if (micText) transcriptParts.push(micText);
+        if (mixedBlob) {
+          this.onStatus(`Transcribing mixed meeting audio (${Math.round(mixedBlob.size / 1024)} KB)...`);
+          const text = await this._transcribeBlob(mixedBlob, 'meeting');
+          if (text) transcriptParts.push(text);
         }
 
         const newTranscript = transcriptParts.join(' ').trim();
@@ -167,7 +162,7 @@
           manualText: manual,
           fullTranscript: this.transcriptBuffer.getFullTranscript(),
           stats: this.transcriptBuffer.getStats(),
-          captured: { systemBytes: systemBlob?.size || 0, micBytes: micBlob?.size || 0 }
+          captured: { systemBytes: mixedBlob?.size || 0, micBytes: 0 }
         };
       } finally {
         this.isProcessingAnswer = false;
@@ -249,6 +244,29 @@
           this.onStatus('System audio only — microphone access denied or unavailable.');
         }
       }
+
+      // Mix the system stream and microphone stream using Web Audio API
+      if (this.micStream) {
+        try {
+          const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const destination = audioContext.createMediaStreamDestination();
+
+          const systemSource = audioContext.createMediaStreamSource(this.systemStream);
+          systemSource.connect(destination);
+
+          const micSource = audioContext.createMediaStreamSource(this.micStream);
+          micSource.connect(destination);
+
+          this.mixedStream = destination.stream;
+          this.audioContext = audioContext;
+          console.info('Successfully mixed system loopback audio and microphone streams.');
+        } catch (mixErr) {
+          console.warn('Failed to mix audio streams, falling back to separate/system stream:', mixErr.message);
+          this.mixedStream = this.systemStream;
+        }
+      } else {
+        this.mixedStream = this.systemStream;
+      }
     }
 
     _getMimeType() {
@@ -281,20 +299,12 @@
     }
 
     _startRecorders() {
-      this.systemChunks = [];
-      this.micChunks = [];
+      this.mixedChunks = [];
 
-      this.systemRecorder = this._createRecorder(this.systemStream, (chunk) => {
-        this.systemChunks.push(chunk);
+      this.mixedRecorder = this._createRecorder(this.mixedStream, (chunk) => {
+        this.mixedChunks.push(chunk);
       });
-      this.systemRecorder.start(this.chunkIntervalMs);
-
-      if (this.micStream) {
-        this.micRecorder = this._createRecorder(this.micStream, (chunk) => {
-          this.micChunks.push(chunk);
-        });
-        this.micRecorder.start(this.chunkIntervalMs);
-      }
+      this.mixedRecorder.start(this.chunkIntervalMs);
 
       this._startLevelMonitor();
     }
@@ -356,22 +366,18 @@
       const wasListening = this.isListening;
       this._stopLevelMonitor();
 
-      const [systemBlob, micBlob] = await Promise.all([
-        this._finalizeRecorder(this.systemRecorder, this.systemChunks),
-        this._finalizeRecorder(this.micRecorder, this.micChunks)
-      ]);
+      const mixedBlob = await this._finalizeRecorder(this.mixedRecorder, this.mixedChunks);
 
-      this.systemRecorder = null;
-      this.micRecorder = null;
+      this.mixedRecorder = null;
 
-      if (wasListening && this.systemStream && !this.systemStream.getAudioTracks().some((t) => t.readyState === 'ended')) {
+      if (wasListening && this.mixedStream && !this.mixedStream.getAudioTracks().some((t) => t.readyState === 'ended')) {
         this._startRecorders();
       } else if (wasListening) {
         this.onError('System audio track ended. Toggle listening to reconnect.');
         this._setListening(false);
       }
 
-      return { systemBlob, micBlob };
+      return { mixedBlob };
     }
 
     async _transcribeBlob(blob, source) {
@@ -491,7 +497,7 @@
 
     _cleanupStreams() {
       this._stopLevelMonitor();
-      [this.systemStream, this.micStream, this.displayStream].forEach((stream) => {
+      [this.systemStream, this.micStream, this.displayStream, this.mixedStream].forEach((stream) => {
         if (!stream) return;
         stream.getTracks().forEach((track) => {
           try {
@@ -504,6 +510,13 @@
       this.systemStream = null;
       this.micStream = null;
       this.displayStream = null;
+      this.mixedStream = null;
+      if (this.audioContext) {
+        try {
+          this.audioContext.close();
+        } catch (err) {}
+        this.audioContext = null;
+      }
     }
 
     _setListening(listening) {
