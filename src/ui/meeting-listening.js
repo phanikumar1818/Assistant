@@ -80,6 +80,8 @@
       this.levelContext = null;
       this.levelAnalyser = null;
       this.levelMonitorId = null;
+      this.webSpeechService = null;
+      this._webSpeechReady = false;
       this.isListening = false;
       this.isProcessingAnswer = false;
       this.chunkIntervalMs = options.chunkIntervalMs || 2000;
@@ -102,6 +104,44 @@
         await this._acquireStreams();
         this._startRecorders();
         this._setListening(true);
+
+        if (typeof WebSpeechTranscriptionService !== 'undefined') {
+          this.webSpeechService = new WebSpeechTranscriptionService({
+            lang: 'en-US',
+            onUtterance: (text) => {
+              this.transcriptBuffer.appendSegment(text, 'web-speech');
+              if (this.syncTranscript) {
+                this.syncTranscript(this.transcriptBuffer.toJSON());
+              }
+            },
+            onInterim: (text) => {
+              if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.sendInterimTranscription === 'function') {
+                window.electronAPI.sendInterimTranscription(text);
+              } else if (typeof window !== 'undefined' && typeof window.showInterimText === 'function') {
+                window.showInterimText(text);
+              }
+            },
+            onError: (err) => {
+              console.error('[WebSpeech] Error:', err);
+              this.onError('[WebSpeech] Error: ' + err);
+              if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.sendSpeechError === 'function') {
+                window.electronAPI.sendSpeechError(err);
+              }
+            },
+            onStatusChange: (status) => {
+              console.log('[WebSpeech] Status:', status);
+              this.onStatus('[WebSpeech] Status: ' + status);
+              if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.sendSpeechStatus === 'function') {
+                window.electronAPI.sendSpeechStatus(status);
+              }
+            }
+          });
+          this.webSpeechService.start();
+          this._webSpeechReady = true;
+        } else {
+          console.warn('[WebSpeech] WebSpeechTranscriptionService is not defined.');
+        }
+
         this.onStatus('Listening: system audio + microphone. Press Enter when you want an answer.');
         return { success: true };
       } catch (err) {
@@ -114,6 +154,16 @@
     }
 
     stop() {
+      if (this.webSpeechService) {
+        try {
+          this.webSpeechService.stop();
+        } catch (e) {
+          console.error('[WebSpeech] Error stopping service:', e);
+        }
+        this.webSpeechService = null;
+        this._webSpeechReady = false;
+      }
+
       this._stopLevelMonitor();
       this._stopRecorder(this.mixedRecorder);
       this.mixedRecorder = null;
@@ -137,32 +187,43 @@
 
       try {
         const manual = (manualText || '').trim();
-        const { mixedBlob } = await this._snapshotAudioForTranscription();
-        const transcriptParts = [];
+        let newSinceLastAnswer = this.transcriptBuffer.getNewSinceLastAnswer();
+        let fallbackBytes = 0;
 
-        if (mixedBlob) {
-          this.onStatus(`Transcribing mixed meeting audio (${Math.round(mixedBlob.size / 1024)} KB)...`);
-          const text = await this._transcribeBlob(mixedBlob, 'meeting');
-          if (text) transcriptParts.push(text);
+        // If Web Speech transcript is empty, check if we should run the Gemini audio transcription fallback
+        if (!newSinceLastAnswer) {
+          console.warn('[ContinuousListeningManager] Web Speech transcript is empty, falling back to Gemini audio transcription.');
+          try {
+            const { mixedBlob } = await this._snapshotAudioForTranscription();
+            if (mixedBlob && mixedBlob.size >= 500) {
+              fallbackBytes = mixedBlob.size;
+              this.onStatus('[Fallback] Transcribing accumulated audio chunks via Gemini...');
+              const text = await this._transcribeBlob(mixedBlob, 'meeting');
+              if (text) {
+                this.transcriptBuffer.appendSegment(text, 'fallback-transcription');
+                await this._notifyTranscriptSync();
+                newSinceLastAnswer = this.transcriptBuffer.getNewSinceLastAnswer();
+              }
+            }
+          } catch (fallbackErr) {
+            console.error('[ContinuousListeningManager] Gemini transcription fallback failed:', fallbackErr);
+            this.onError('[Fallback] Gemini transcription failed: ' + fallbackErr.message);
+          }
+        } else {
+          // Clear mixedChunks buffer to prevent memory accumulation
+          this.mixedChunks = [];
         }
 
-        const newTranscript = transcriptParts.join(' ').trim();
-        if (newTranscript) {
-          this.transcriptBuffer.appendSegment(newTranscript, 'transcription');
-          await this._notifyTranscriptSync();
-        }
-
-        const newSinceLastAnswer = this.transcriptBuffer.getNewSinceLastAnswer();
         const parts = [manual, newSinceLastAnswer].filter(Boolean);
         const payload = parts.join('\n\n').trim();
 
         return {
           payload,
-          newTranscript,
+          newTranscript: newSinceLastAnswer,
           manualText: manual,
           fullTranscript: this.transcriptBuffer.getFullTranscript(),
           stats: this.transcriptBuffer.getStats(),
-          captured: { systemBytes: mixedBlob?.size || 0, micBytes: 0 }
+          captured: { systemBytes: fallbackBytes, micBytes: 0 }
         };
       } finally {
         this.isProcessingAnswer = false;
@@ -362,6 +423,7 @@
       });
     }
 
+    // Legacy: Gemini audio transcription fallback — preserved for future use
     async _snapshotAudioForTranscription() {
       const wasListening = this.isListening;
       this._stopLevelMonitor();
@@ -380,6 +442,7 @@
       return { mixedBlob };
     }
 
+    // Legacy: Gemini audio transcription fallback — preserved for future use
     async _transcribeBlob(blob, source) {
       if (!this.transcribeAudio) {
         throw new Error('Transcription service not configured.');

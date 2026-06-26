@@ -18,6 +18,7 @@ class MainWindowUI {
         
         // Define available skills for navigation
         this.availableSkills = [
+            'meeting-assistant',
             'programming',
             'dsa', 
             'system-design',
@@ -331,6 +332,7 @@ class MainWindowUI {
     handleLLMResponse(data) {
         const skill = data.skill || data.metadata?.skill || 'General';
         const skillNames = {
+            'meeting-assistant': 'Meeting Assistant',
             'dsa': 'DSA',
             'behavioral': 'Behavioral', 
             'sales': 'Sales',
@@ -466,6 +468,7 @@ class MainWindowUI {
 
     updateSkillIndicator() {
         const skillNames = {
+            'meeting-assistant': 'Meeting Assistant',
             'dsa': 'DSA',
             'behavioral': 'Behavioral', 
             'sales': 'Sales',
@@ -579,6 +582,7 @@ class MainWindowUI {
 
     showSkillChangeNotification(skill, direction) {
         const skillNames = {
+            'meeting-assistant': 'Meeting Assistant',
             'dsa': 'DSA',
             'behavioral': 'Behavioral', 
             'sales': 'Sales',

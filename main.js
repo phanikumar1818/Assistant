@@ -530,6 +530,9 @@ class ApplicationController {
       return { success: true };
     });
 
+    // NOTE: As of the Web Speech refactor, this handler is no longer called in the normal flow.
+    // It is preserved as a fallback for future use or manual invocation.
+    // Do not remove it.
     // Audio transcription via Gemini
     ipcMain.handle("transcribe-audio", async (event, { base64Audio, source, mimeType }) => {
       try {
@@ -791,6 +794,7 @@ class ApplicationController {
 
   navigateSkill(direction) {
     const availableSkills = [
+      "meeting-assistant",
       "programming",
       "dsa",
       "system-design",
@@ -978,7 +982,7 @@ class ApplicationController {
       const sessionHistory = sessionManager.getOptimizedHistory();
 
       // Check if current skill needs programming language context
-      const skillsRequiringProgrammingLanguage = ['programming', 'dsa', 'devops', 'system-design', 'data-science'];
+      const skillsRequiringProgrammingLanguage = ['meeting-assistant', 'programming', 'dsa', 'devops', 'system-design', 'data-science'];
       const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
 
       // Process with LLM vision
@@ -1052,7 +1056,7 @@ class ApplicationController {
       sessionManager.addUserInput(text, 'llm_input');
 
       // Check if current skill needs programming language context
-      const skillsRequiringProgrammingLanguage = ['programming', 'dsa', 'devops', 'system-design', 'data-science'];
+      const skillsRequiringProgrammingLanguage = ['meeting-assistant', 'programming', 'dsa', 'devops', 'system-design', 'data-science'];
       const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
 
       const llmResult = await llmService.processTextWithSkill(
@@ -1131,7 +1135,7 @@ class ApplicationController {
       });
 
       // Check if current skill needs programming language context
-      const skillsRequiringProgrammingLanguage = ['programming', 'dsa', 'devops', 'system-design', 'data-science'];
+      const skillsRequiringProgrammingLanguage = ['meeting-assistant', 'programming', 'dsa', 'devops', 'system-design', 'data-science'];
       const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
 
       const llmResult = await llmService.processTranscriptionWithIntelligentResponse(
@@ -1300,7 +1304,7 @@ class ApplicationController {
   getSettings() {
     return {
       codingLanguage: this.codingLanguage || "javascript",
-      activeSkill: this.activeSkill || "dsa",
+      activeSkill: this.activeSkill || "meeting-assistant",
       appIcon: this.appIcon || "terminal",
       selectedIcon: this.appIcon || "terminal",
     };

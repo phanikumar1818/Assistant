@@ -151,11 +151,26 @@ class SessionManager {
     });
   }
 
+  _summarizeResponseForHistory(text) {
+    if (!text || typeof text !== 'string') return '';
+    // Strip fenced code blocks (```...```) — replace with a placeholder
+    let summarized = text.replace(/```[\s\S]*?```/g, '[code block omitted]');
+    // Strip inline code spans longer than 40 chars
+    summarized = summarized.replace(/`[^`]{40,}`/g, '[code omitted]');
+    // Collapse multiple newlines
+    summarized = summarized.replace(/\n{3,}/g, '\n\n');
+    // Truncate to 600 characters maximum
+    if (summarized.length > 600) {
+      summarized = summarized.substring(0, 597) + '...';
+    }
+    return summarized.trim();
+  }
+
   /**
    * Create a conversation event with consistent structure
    */
   createConversationEvent({ role, content, skill, action, metadata = {} }) {
-    return {
+    const event = {
       id: this.generateEventId(),
       timestamp: new Date().toISOString(),
       role, // 'user', 'model', or 'system'
@@ -174,6 +189,10 @@ class SessionManager {
         ...metadata 
       })
     };
+    if (role === 'model') {
+      event.summaryContent = metadata.summaryContent || this._summarizeResponseForHistory(content);
+    }
+    return event;
   }
 
   /**
@@ -199,7 +218,7 @@ class SessionManager {
     
     return conversationEvents.map(event => ({
       role: event.role,
-      content: event.content,
+      content: event.summaryContent || event.content,
       timestamp: event.timestamp,
       skill: event.skill,
       action: event.action

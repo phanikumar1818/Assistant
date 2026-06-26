@@ -6,7 +6,7 @@ class PromptLoader {
     this.prompts = new Map();
     this.promptsLoaded = false;
     this.skillPromptSent = new Set(); // Track which skills have had their system prompt sent
-    this.skillsRequiringProgrammingLanguage = ['programming', 'dsa', 'devops', 'system-design', 'data-science'];
+    this.skillsRequiringProgrammingLanguage = ['meeting-assistant', 'programming', 'dsa', 'devops', 'system-design', 'data-science'];
   }
 
   /**
@@ -18,22 +18,22 @@ class PromptLoader {
     }
 
     const promptsDir = path.join(__dirname, 'prompts');
-    
+
     try {
       const files = fs.readdirSync(promptsDir);
-      
+
       for (const file of files) {
         if (file.endsWith('.md')) {
           const skillName = path.basename(file, '.md');
           const filePath = path.join(promptsDir, file);
           const promptContent = fs.readFileSync(filePath, 'utf8');
-          
+
           this.prompts.set(skillName, promptContent);
         }
       }
-      
+
       this.promptsLoaded = true;
-      
+
     } catch (error) {
       console.error('Error loading skill prompts:', error);
       throw new Error(`Failed to load skill prompts: ${error.message}`);
@@ -53,7 +53,7 @@ class PromptLoader {
 
     const normalizedSkillName = this.normalizeSkillName(skillName);
     let promptContent = this.prompts.get(normalizedSkillName);
-    
+
     if (!promptContent) {
       return null;
     }
@@ -76,10 +76,10 @@ class PromptLoader {
   injectProgrammingLanguage(promptContent, programmingLanguage, skillName) {
     const languageUpper = programmingLanguage.toUpperCase();
     const languageTitle = programmingLanguage.charAt(0).toUpperCase() + programmingLanguage.slice(1);
-    
+
     // Create language-specific injection based on skill type
     let languageInjection = '';
-    
+
     switch (skillName) {
       case 'programming':
         languageInjection = `\n\n## PRIMARY PROGRAMMING LANGUAGE: ${languageUpper}
@@ -90,7 +90,7 @@ Unless explicitly asked for a different language, all code examples, solutions, 
 - Performance characteristics
 - Ecosystem tools and conventions`;
         break;
-        
+
       case 'dsa':
         languageInjection = `\n\n## IMPLEMENTATION LANGUAGE: ${languageUpper}
 When providing algorithm implementations and data structure examples, use ${languageTitle} as the primary language. Focus on:
@@ -100,7 +100,7 @@ When providing algorithm implementations and data structure examples, use ${lang
 - Standard library methods relevant to DSA
 - Time/space complexity in the context of ${languageTitle}`;
         break;
-        
+
       case 'system-design':
         languageInjection = `\n\n## IMPLEMENTATION CONTEXT: ${languageUpper}
 When discussing implementation details, code examples, or technology choices, consider ${languageTitle} as the primary language context:
@@ -110,7 +110,7 @@ When discussing implementation details, code examples, or technology choices, co
 - ${languageTitle}-based microservices patterns
 - Database drivers and ORM options for ${languageTitle}`;
         break;
-        
+
       case 'data-science':
         languageInjection = `\n\n## PRIMARY LANGUAGE: ${languageUpper}
 All data science solutions, code examples, and library recommendations should prioritize ${languageTitle}:
@@ -120,7 +120,7 @@ All data science solutions, code examples, and library recommendations should pr
 - Machine learning libraries and model implementation
 - Data processing and pipeline tools for ${languageTitle}`;
         break;
-        
+
       case 'devops':
         languageInjection = `\n\n## SCRIPTING/AUTOMATION LANGUAGE: ${languageUpper}
 When providing automation scripts, infrastructure code, or tooling examples, use ${languageTitle} as the primary language:
@@ -130,7 +130,7 @@ When providing automation scripts, infrastructure code, or tooling examples, use
 - Monitoring and logging solutions compatible with ${languageTitle}
 - Container and orchestration setups for ${languageTitle} applications`;
         break;
-        
+
       default:
         languageInjection = `\n\n## PROGRAMMING LANGUAGE CONTEXT: ${languageUpper}
 When providing technical examples or code-related advice, use ${languageTitle} as the primary programming language.`;
@@ -157,14 +157,14 @@ When providing technical examples or code-related advice, use ${languageTitle} a
    */
   shouldSendAsModelMemory(skillName, storedMemory) {
     const normalizedSkillName = this.normalizeSkillName(skillName);
-    
+
     // If stored memory is empty, this is the first time - send as model memory
     if (this.isFirstTimeInteraction(storedMemory)) {
       return true;
     }
 
     // Check if we've already sent this skill's prompt as model memory
-    const hasSkillInMemory = storedMemory.some(event => 
+    const hasSkillInMemory = storedMemory.some(event =>
       event.skillUsed === normalizedSkillName && event.promptSentAsMemory === true
     );
 
@@ -186,7 +186,7 @@ When providing technical examples or code-related advice, use ${languageTitle} a
   prepareGeminiRequest(skillName, userMessage, storedMemory, programmingLanguage = null) {
     const normalizedSkillName = this.normalizeSkillName(skillName);
     const skillPrompt = this.getSkillPrompt(normalizedSkillName, programmingLanguage);
-    
+
     const requestConfig = {
       model: 'gemini-pro', // or your preferred Gemini model
       contents: [],
@@ -204,16 +204,16 @@ When providing technical examples or code-related advice, use ${languageTitle} a
         requestConfig.systemInstruction = {
           parts: [{ text: skillPrompt }]
         };
-        
+
         // Add user message as regular content
         requestConfig.contents.push({
           role: 'user',
           parts: [{ text: userMessage }]
         });
-        
+
         // Mark that we're sending this as model memory
         this.skillPromptSent.add(normalizedSkillName);
-        
+
         return {
           ...requestConfig,
           isUsingModelMemory: true,
@@ -230,7 +230,7 @@ When providing technical examples or code-related advice, use ${languageTitle} a
       role: 'user',
       parts: [{ text: userMessage }]
     });
-    
+
     return {
       ...requestConfig,
       isUsingModelMemory: false,
@@ -278,7 +278,7 @@ When providing technical examples or code-related advice, use ${languageTitle} a
   updateStoredMemory(storedMemory, skillName, wasModelMemoryUsed, userMessage, aiResponse, programmingLanguage = null) {
     const normalizedSkillName = this.normalizeSkillName(skillName);
     const updatedMemory = [...(storedMemory || [])];
-    
+
     const memoryEntry = {
       timestamp: new Date().toISOString(),
       skillUsed: normalizedSkillName,
@@ -288,9 +288,9 @@ When providing technical examples or code-related advice, use ${languageTitle} a
       action: wasModelMemoryUsed ? 'MODEL_MEMORY_SENT' : 'REGULAR_MESSAGE',
       programmingLanguage: programmingLanguage || null
     };
-    
+
     updatedMemory.push(memoryEntry);
-        
+
     return updatedMemory;
   }
 
@@ -309,7 +309,7 @@ When providing technical examples or code-related advice, use ${languageTitle} a
 
       // Prepare the actual API request
       const geminiRequest = this.prepareGeminiRequest(skillName, userMessage, storedMemory, programmingLanguage);
-      
+
       return {
         requestReady: true,
         geminiRequest,
@@ -317,7 +317,7 @@ When providing technical examples or code-related advice, use ${languageTitle} a
         needsMemoryUpdate: true,
         programmingLanguage
       };
-      
+
     } catch (error) {
       console.error('Error processing user request:', error);
       return {
@@ -353,12 +353,16 @@ When providing technical examples or code-related advice, use ${languageTitle} a
    */
   normalizeSkillName(skillName) {
     if (!skillName) return 'general';
-    
+
     // Convert to lowercase and handle common variations
     const normalized = skillName.toLowerCase().trim();
-    
+
     // Map common variations to standard names
     const skillMap = {
+      'meeting-assistant': 'meeting-assistant',
+      'meeting-helper': 'meeting-assistant',
+      'meeting': 'meeting-assistant',
+      'assistant': 'meeting-assistant',
       'dsa': 'dsa',
       'data-structures': 'dsa',
       'algorithms': 'dsa',
@@ -403,7 +407,7 @@ When providing technical examples or code-related advice, use ${languageTitle} a
     if (!this.promptsLoaded) {
       this.loadPrompts();
     }
-    
+
     return Array.from(this.prompts.keys());
   }
 
