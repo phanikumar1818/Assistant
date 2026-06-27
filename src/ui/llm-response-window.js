@@ -162,7 +162,7 @@ class LLMResponseWindowUI {
           }
           return code;
         },
-        breaks: true,
+        breaks: false,
         gfm: true,
       });
     }

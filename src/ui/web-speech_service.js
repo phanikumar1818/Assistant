@@ -13,6 +13,7 @@
       this.shouldBeListening = false;   // ← This flag drives the auto-restart loop
       this.restartDelay = 300;          // ms to wait before restarting after onend
       this._restartTimer = null;
+      this.consecutiveNetworkErrors = 0;
     }
 
     start() {
@@ -56,6 +57,7 @@
       };
 
       this.recognition.onresult = (event) => {
+        this.consecutiveNetworkErrors = 0;
         let interimTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const result = event.results[i];
@@ -77,8 +79,8 @@
         const errorType = event.error;
         console.warn('[WebSpeech] Error event:', errorType);
 
-        if (errorType === 'no-speech') {
-          // Normal silence, let onend handle restart
+        if (errorType === 'no-speech' || errorType === 'aborted') {
+          // Normal silence/aborted, let onend handle restart
           return;
         }
 
@@ -93,15 +95,20 @@
           }
           this.shouldBeListening = false;
         } else if (errorType === 'network') {
-          if (this.onError) {
-            this.onError('Network error during speech recognition');
+          this.consecutiveNetworkErrors = (this.consecutiveNetworkErrors || 0) + 1;
+          console.warn(`[WebSpeech] Network error during speech recognition (count: ${this.consecutiveNetworkErrors}).`);
+          if (this.consecutiveNetworkErrors >= 3) {
+            console.warn('[WebSpeech] Too many consecutive network errors. Disabling WebSpeech auto-restart to prevent infinite loop.');
+            this.shouldBeListening = false;
+            if (this.onError) {
+              this.onError('Speech recognition network error: Service unavailable or requires API key configuration.');
+            }
           }
-          this.shouldBeListening = false; // Disable restart on network/keys error
         } else {
-          if (this.onError) {
-            this.onError('Speech recognition error: ' + errorType);
+          console.warn('[WebSpeech] Speech recognition service error:', errorType);
+          if (errorType === 'service-not-allowed') {
+            this.shouldBeListening = false;
           }
-          this.shouldBeListening = false; // Disable restart on fatal errors
         }
       };
 

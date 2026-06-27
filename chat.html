@@ -160,10 +160,15 @@
 
     .message.assistant .message-text {
       /* Removed all height restrictions and overflow hidden */
-      white-space: pre-wrap;
+      white-space: normal;
       word-wrap: break-word;
       word-break: break-word;
       overflow-wrap: break-word;
+    }
+
+    .message.assistant .message-text pre,
+    .message.assistant .message-text code {
+      white-space: pre-wrap;
     }
 
     /* Ensure all content in assistant messages is fully visible */
@@ -479,9 +484,39 @@
     }
 
     .mic-button.recording {
-      background: rgba(255, 71, 87, 0.8);
+      background: rgba(255, 71, 87, 0.85);
       color: white;
-      box-shadow: 0 0 15px rgba(255, 71, 87, 0.4);
+      box-shadow: 0 0 15px rgba(255, 71, 87, 0.5);
+      animation: micButtonPulse 2s infinite ease-in-out;
+    }
+
+    /* Pulse animation for the active mic button */
+    @keyframes micButtonPulse {
+      0%, 100% {
+        box-shadow: 0 0 10px rgba(255, 71, 87, 0.4);
+      }
+      50% {
+        box-shadow: 0 0 20px rgba(255, 71, 87, 0.7);
+      }
+    }
+
+    /* Pulse animation for the active header mic icon */
+    .chat-header .header-title i.fa-microphone.recording {
+      color: #ff4757;
+      text-shadow: 0 0 10px rgba(255, 71, 87, 0.6);
+      animation: micPulse 1.5s infinite ease-in-out;
+      display: inline-block;
+    }
+
+    @keyframes micPulse {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+      50% {
+        transform: scale(1.15);
+        opacity: 0.8;
+      }
     }
 
     .help-text {
@@ -638,93 +673,6 @@
       margin-left: 4px;
     }
 
-    /* Live Transcript Box - Shows during voice recording */
-    .live-transcript-box {
-      position: fixed;
-      bottom: 80px;
-      left: 20px;
-      right: 20px;
-      background: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(20px);
-      border: 2px solid rgba(76, 175, 80, 0.5);
-      border-radius: 12px;
-      padding: 16px;
-      z-index: 999;
-      display: none;
-      animation: slideUpFade 0.3s ease-out;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    }
-
-    .live-transcript-box.active {
-      display: block;
-    }
-
-    .live-transcript-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .live-transcript-header .mic-icon {
-      color: #ff4757;
-      animation: pulse 1.5s infinite;
-    }
-
-    .live-transcript-header .title {
-      color: rgba(255, 255, 255, 0.95);
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    .live-transcript-header .duration {
-      margin-left: auto;
-      color: rgba(76, 175, 80, 0.9);
-      font-size: 11px;
-      font-family: monospace;
-    }
-
-    .live-transcript-content {
-      min-height: 40px;
-      max-height: 120px;
-      overflow-y: auto;
-    }
-
-    .live-transcript-interim {
-      color: rgba(255, 255, 255, 0.6);
-      font-size: 14px;
-      font-style: italic;
-      line-height: 1.5;
-    }
-
-    .live-transcript-final {
-      color: rgba(255, 255, 255, 0.95);
-      font-size: 14px;
-      line-height: 1.5;
-      margin-bottom: 8px;
-    }
-
-    .live-transcript-hint {
-      margin-top: 12px;
-      padding-top: 8px;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.5);
-      font-size: 11px;
-      text-align: center;
-    }
-
-    .live-transcript-hint kbd {
-      background: rgba(255, 255, 255, 0.1);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-family: monospace;
-      margin: 0 2px;
-    }
-
     /* Interim text overlay - legacy, kept for compatibility */
     .interim-overlay {
       position: fixed;
@@ -858,17 +806,252 @@
     }
 
     @keyframes screenshotPulse {
-
       0%,
       100% {
         opacity: 1;
         box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.5);
       }
-
       50% {
         opacity: 0.8;
         box-shadow: 0 0 0 6px rgba(168, 85, 247, 0);
       }
+    }
+
+    /* Layout Separation Elements */
+    .chat-main-layout {
+      flex: 1;
+      display: flex;
+      flex-direction: row;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .conversation-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 300px;
+    }
+
+    .transcript-pane {
+      width: 300px;
+      display: flex;
+      flex-direction: column;
+      background: rgba(0, 0, 0, 0.15);
+      border-left: 1px solid rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .transcript-pane.collapsed {
+      width: 0;
+      border-left: none;
+    }
+
+    .pane-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .pane-title {
+      color: rgba(255, 255, 255, 0.95);
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .export-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      border-radius: 4px;
+      padding: 4px 8px;
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+    }
+
+    .export-btn:hover {
+      background: rgba(76, 175, 80, 0.2);
+      color: white;
+    }
+
+    .transcript-messages {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Transcript Segment Styles */
+    .transcript-segment {
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 8px;
+      border-left: 3px solid rgba(76, 175, 80, 0.5);
+      animation: fadeInSlide 0.2s ease-out;
+    }
+
+    .transcript-segment.interim {
+      border-left: 3px dashed rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.02);
+      color: rgba(255, 255, 255, 0.6);
+      font-style: italic;
+    }
+
+    .transcript-time {
+      font-size: 9px;
+      color: rgba(255, 255, 255, 0.4);
+      margin-bottom: 2px;
+      display: block;
+      font-family: monospace;
+    }
+
+    .transcript-text {
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      word-break: break-word;
+    }
+
+    /* Activity/System Log Area */
+    .activity-pane {
+      height: 160px;
+      background: rgba(10, 10, 10, 0.85);
+      backdrop-filter: blur(15px);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      flex-shrink: 0;
+    }
+
+    .activity-pane.collapsed {
+      height: 0;
+      border-top: none;
+    }
+
+    .activity-header {
+      padding: 8px 16px;
+      background: rgba(0, 0, 0, 0.25);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .activity-title {
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 11px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      letter-spacing: 0.5px;
+    }
+
+    .close-activity-btn {
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.5);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .close-activity-btn:hover {
+      color: white;
+    }
+
+    .activity-logs {
+      flex: 1;
+      padding: 10px 16px;
+      overflow-y: auto;
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .log-entry {
+      line-height: 1.4;
+      word-wrap: break-word;
+      word-break: break-all;
+    }
+
+    .log-entry.info {
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .log-entry.success {
+      color: #81c784;
+    }
+
+    .log-entry.error {
+      color: #e57373;
+    }
+
+    .log-time {
+      color: rgba(255, 255, 255, 0.3);
+      margin-right: 8px;
+    }
+
+    /* Header Actions */
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    .header-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      color: rgba(255, 255, 255, 0.7);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .header-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: white;
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .header-btn.active {
+      background: rgba(76, 175, 80, 0.2);
+      color: #81c784;
+      border-color: rgba(76, 175, 80, 0.3);
+    }
+
+    .header-btn.active:hover {
+      background: rgba(76, 175, 80, 0.3);
     }
   </style>
 </head>
@@ -882,70 +1065,99 @@
         <div class="recording-indicator" id="recordingIndicator"></div>
         <div class="screenshot-indicator" id="screenshotIndicator"></div>
       </div>
+      <div class="header-actions">
+        <button class="header-btn" id="toggleTranscriptBtn" title="Toggle Transcript Pane">
+          <i class="fas fa-file-alt"></i>
+        </button>
+        <button class="header-btn" id="toggleActivityBtn" title="Toggle Activity Log">
+          <i class="fas fa-terminal"></i>
+        </button>
+        <button class="header-btn" id="clearSessionBtn" title="Clear Session Memory">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
     </div>
 
-    <!-- Screenshot Preview Banner -->
-    <div class="screenshot-banner" id="screenshotBanner">
-      <img class="screenshot-preview" id="screenshotPreview" src="" alt="Screenshot preview">
-      <div class="screenshot-info">
-        <div class="screenshot-title">
-          <i class="fas fa-image"></i>
-          Screenshot Ready for AI
+    <div class="chat-main-layout">
+      <!-- Left Column: Main Conversation Area -->
+      <div class="conversation-pane" id="conversationPane">
+        <!-- Screenshot Preview Banner -->
+        <div class="screenshot-banner" id="screenshotBanner">
+          <img class="screenshot-preview" id="screenshotPreview" src="" alt="Screenshot preview">
+          <div class="screenshot-info">
+            <div class="screenshot-title">
+              <i class="fas fa-image"></i>
+              Screenshot Ready for AI
+            </div>
+            <div class="screenshot-hint">Type your question about this screenshot and press Enter</div>
+          </div>
+          <button class="screenshot-dismiss" id="screenshotDismiss">
+            <i class="fas fa-times"></i> Dismiss
+          </button>
         </div>
-        <div class="screenshot-hint">Type your question about this screenshot and press Enter</div>
+
+        <!-- Listening Indicator (legacy, minimal) -->
+        <div class="listening-indicator" id="listeningIndicator">
+          <div class="listening-wave">
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+          </div>
+          <span class="listening-text">Listening</span>
+          <span class="listening-duration" id="listeningDuration">0s</span>
+        </div>
+
+        <!-- Interim Text Overlay (legacy) -->
+        <div class="interim-overlay" id="interimOverlay"></div>
+
+        <div class="chat-messages" id="chatMessages"></div>
+
+        <div class="chat-input">
+          <div class="input-container">
+            <input type="text" class="input-field" placeholder="Optional: add or edit your question, then press Enter" id="messageInput" />
+            <button class="mic-button" id="micButton">
+              <i class="fas fa-microphone"></i>
+            </button>
+            <button class="send-button" id="sendButton">
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          </div>
+        </div>
       </div>
-      <button class="screenshot-dismiss" id="screenshotDismiss">
-        <i class="fas fa-times"></i> Dismiss
-      </button>
+
+      <!-- Right Column: Transcript Area (Collapsible) -->
+      <div class="transcript-pane collapsed" id="transcriptPane">
+        <div class="pane-header">
+          <div class="pane-title">
+            <i class="fas fa-file-alt"></i> Transcript Timeline
+          </div>
+          <button class="export-btn" id="exportTranscriptBtn" title="Export Transcript to TXT">
+            <i class="fas fa-download"></i> Export
+          </button>
+        </div>
+        <div class="transcript-messages" id="transcriptMessages">
+          <div class="status-message" id="emptyTranscriptMsg">No transcription yet. Turn on the microphone to begin capture.</div>
+        </div>
+      </div>
     </div>
 
-    <!-- Listening Indicator (legacy, minimal) -->
-    <div class="listening-indicator" id="listeningIndicator">
-      <div class="listening-wave">
-        <div class="wave-bar"></div>
-        <div class="wave-bar"></div>
-        <div class="wave-bar"></div>
-        <div class="wave-bar"></div>
-        <div class="wave-bar"></div>
-      </div>
-      <span class="listening-text">Listening</span>
-      <span class="listening-duration" id="listeningDuration">0s</span>
-    </div>
-
-    <!-- Live Transcript Box - Shows while recording -->
-    <div class="live-transcript-box" id="liveTranscriptBox">
-      <div class="live-transcript-header">
-        <i class="fas fa-microphone mic-icon"></i>
-        <span class="title">Listening...</span>
-        <span class="duration" id="transcriptDuration">0s</span>
-      </div>
-      <div class="live-transcript-content">
-        <div class="live-transcript-final" id="transcriptFinal"></div>
-        <div class="live-transcript-interim" id="transcriptInterim"></div>
-      </div>
-      <div class="live-transcript-hint">
-        Toggle <kbd>🎤</kbd> to start/stop meeting capture • Press <kbd>Enter</kbd> to answer (transcribes new audio since last answer)
-      </div>
-    </div>
-
-    <!-- Interim Text Overlay (legacy) -->
-    <div class="interim-overlay" id="interimOverlay"></div>
-
-    <div class="chat-messages" id="chatMessages"></div>
-
-    <div class="chat-input">
-      <div class="input-container">
-        <input type="text" class="input-field" placeholder="Optional: add or edit your question, then press Enter" id="messageInput" />
-        <button class="mic-button" id="micButton">
-          <i class="fas fa-microphone"></i>
+    <!-- Bottom Pane: Activity / System Log Area (Collapsible) -->
+    <div class="activity-pane collapsed" id="activityPane">
+      <div class="activity-header">
+        <div class="activity-title">
+          <i class="fas fa-terminal"></i> Activity Log
+        </div>
+        <button class="close-activity-btn" id="closeActivityBtn">
+          <i class="fas fa-chevron-down"></i>
         </button>
-        <button class="send-button" id="sendButton">
-          <i class="fas fa-paper-plane"></i>
-        </button>
       </div>
+      <div class="activity-logs" id="activityLogs"></div>
     </div>
   </div>
   <script src="lib/markdown.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="src/ui/web-speech_service.js"></script>
   <script src="src/ui/meeting-listening.js"></script>
   <script>
@@ -966,11 +1178,19 @@
     const screenshotIndicator = document.getElementById('screenshotIndicator');
     const screenshotDismiss = document.getElementById('screenshotDismiss');
 
-    // Live transcript elements
-    const liveTranscriptBox = document.getElementById('liveTranscriptBox');
-    const transcriptDuration = document.getElementById('transcriptDuration');
-    const transcriptFinal = document.getElementById('transcriptFinal');
-    const transcriptInterim = document.getElementById('transcriptInterim');
+
+    // New Separation Elements
+    const toggleTranscriptBtn = document.getElementById('toggleTranscriptBtn');
+    const toggleActivityBtn = document.getElementById('toggleActivityBtn');
+    const clearSessionBtn = document.getElementById('clearSessionBtn');
+    const exportTranscriptBtn = document.getElementById('exportTranscriptBtn');
+    const closeActivityBtn = document.getElementById('closeActivityBtn');
+    
+    const transcriptPane = document.getElementById('transcriptPane');
+    const transcriptMessages = document.getElementById('transcriptMessages');
+    
+    const activityPane = document.getElementById('activityPane');
+    const activityLogs = document.getElementById('activityLogs');
 
     let isListening = false;
     let isInteractive = true;
@@ -980,16 +1200,154 @@
 
     let audioLevelHint = 'Waiting for audio…';
 
+    // Activity logging utility
+    function logActivity(text, type = 'info') {
+      if (!activityLogs) return;
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'log-time';
+      timeSpan.textContent = new Date().toLocaleTimeString();
+      
+      const textSpan = document.createElement('span');
+      textSpan.textContent = text;
+      
+      entry.appendChild(timeSpan);
+      entry.appendChild(textSpan);
+      
+      activityLogs.appendChild(entry);
+      activityLogs.scrollTop = activityLogs.scrollHeight;
+    }
+
+    // Render Transcript Timeline
+    function renderTranscriptTimeline() {
+      if (!transcriptMessages) return;
+      
+      const segments = meetingListener.transcriptBuffer.segments || [];
+      
+      if (segments.length === 0) {
+        transcriptMessages.innerHTML = '<div class="status-message" id="emptyTranscriptMsg">No transcription yet. Turn on the microphone to begin capture.</div>';
+        return;
+      }
+      
+      transcriptMessages.innerHTML = '';
+      
+      segments.forEach((seg) => {
+        const segDiv = document.createElement('div');
+        segDiv.className = 'transcript-segment';
+        
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'transcript-time';
+        const date = new Date(seg.timestamp);
+        timeSpan.textContent = date.toLocaleTimeString();
+        
+        const textSpan = document.createElement('span');
+        textSpan.className = 'transcript-text';
+        textSpan.textContent = seg.text;
+        
+        segDiv.appendChild(timeSpan);
+        segDiv.appendChild(textSpan);
+        transcriptMessages.appendChild(segDiv);
+      });
+      
+      transcriptMessages.scrollTop = transcriptMessages.scrollHeight;
+    }
+
+    // Panel Toggle Functions
+    async function toggleTranscript() {
+      const isCollapsed = transcriptPane.classList.toggle('collapsed');
+      toggleTranscriptBtn.classList.toggle('active', !isCollapsed);
+      localStorage.setItem('transcriptCollapsed', isCollapsed);
+
+      // Adjust window width dynamically: 500px if collapsed, 800px if expanded
+      if (whysperAPI && whysperAPI.getWindowStats && whysperAPI.resizeWindow) {
+        try {
+          const stats = await whysperAPI.getWindowStats();
+          const chatWindow = stats.windows?.chat;
+          const currentHeight = chatWindow ? chatWindow.height : 700;
+          const targetWidth = isCollapsed ? 500 : 800;
+          await whysperAPI.resizeWindow(targetWidth, currentHeight);
+        } catch (error) {
+          console.error('Failed to resize window:', error);
+        }
+      }
+    }
+
+    function toggleActivity() {
+      const isCollapsed = activityPane.classList.toggle('collapsed');
+      toggleActivityBtn.classList.toggle('active', !isCollapsed);
+      localStorage.setItem('activityCollapsed', isCollapsed);
+    }
+
+    // Export Transcript
+    function exportTranscript() {
+      const fullText = meetingListener.getFullTranscript();
+      if (!fullText) {
+        logActivity('No transcription available to export.', 'error');
+        return;
+      }
+
+      try {
+        const dateStr = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `transcript-${dateStr}.txt`;
+        
+        let output = `Vysper Meeting Transcript\n`;
+        output += `Exported: ${new Date().toLocaleString()}\n`;
+        output += `========================================\n\n`;
+        
+        meetingListener.transcriptBuffer.segments.forEach((seg) => {
+          const time = new Date(seg.timestamp).toLocaleTimeString();
+          output += `[${time}] (${seg.source}): ${seg.text}\n\n`;
+        });
+        
+        const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        logActivity(`Transcript exported successfully as ${filename}`, 'success');
+      } catch (error) {
+        logActivity(`Failed to export transcript: ${error.message}`, 'error');
+      }
+    }
+
     const meetingListener = new MeetingListening.ContinuousListeningManager({
       includeMicrophone: true,
       chunkIntervalMs: 2000,
-      onStatus: (status) => addMessage(status, 'system'),
-      onError: (error) => addMessage(`Meeting audio: ${error}`, 'error'),
+      onStatus: (status) => {
+        logActivity(status, 'info');
+      },
+      onError: (error) => {
+        const lowerErr = error.toLowerCase();
+        const isMicError = lowerErr.includes('permission') || 
+                           lowerErr.includes('not-allowed') || 
+                           lowerErr.includes('not available') || 
+                           lowerErr.includes('audio-capture') ||
+                           lowerErr.includes('initialization') ||
+                           lowerErr.includes('no system audio');
+        if (isMicError) {
+          addMessage(`Meeting audio error: ${error}`, 'error');
+        } else {
+          logActivity(`Meeting audio warning: ${error}`, 'warning');
+        }
+      },
       onListeningChange: (listening) => {
         isListening = listening;
         if (listening) {
+          if (whysperAPI && whysperAPI.sendRecordingStarted) {
+            whysperAPI.sendRecordingStarted();
+          }
           handleListeningStarted();
         } else {
+          if (whysperAPI && whysperAPI.sendRecordingStopped) {
+            whysperAPI.sendRecordingStopped();
+          }
           handleListeningStopped();
         }
       },
@@ -1008,8 +1366,9 @@
       },
       syncTranscript: (data) => {
         if (whysperAPI?.syncMeetingTranscript) {
-          return whysperAPI.syncMeetingTranscript(data);
+          whysperAPI.syncMeetingTranscript(data);
         }
+        refreshTranscriptPreview();
         return Promise.resolve();
       }
     });
@@ -1022,53 +1381,27 @@
       } else if (isListening) {
         updateLiveTranscript('', audioLevelHint);
       }
+      
+      // Sync Transcript Timeline Area
+      renderTranscriptTimeline();
     }
 
     // Legacy alias for global shortcut handler name
     const audioRecognition = meetingListener;
 
-    // Live Transcript Functions
-    function showLiveTranscriptBox() {
-      if (liveTranscriptBox) {
-        liveTranscriptBox.classList.add('active');
-        // Clear previous content
-        if (transcriptFinal) transcriptFinal.textContent = '';
-        if (transcriptInterim) transcriptInterim.textContent = 'Listening for speech...';
-
-        // Start duration timer
-        listeningStartTime = Date.now();
-        listeningTimer = setInterval(() => {
-          if (listeningStartTime && transcriptDuration) {
-            const elapsed = Math.floor((Date.now() - listeningStartTime) / 1000);
-            transcriptDuration.textContent = `${elapsed}s`;
-          }
-        }, 1000);
-      }
-    }
-
-    function hideLiveTranscriptBox() {
-      if (liveTranscriptBox) {
-        liveTranscriptBox.classList.remove('active');
-      }
-      // Clear timer
-      if (listeningTimer) {
-        clearInterval(listeningTimer);
-        listeningTimer = null;
-      }
-      listeningStartTime = null;
-    }
-
-    function updateLiveTranscript(finalText, interimText) {
-      if (transcriptFinal) {
-        transcriptFinal.textContent = finalText || '';
-      }
-      if (transcriptInterim) {
-        transcriptInterim.textContent = interimText || '';
-      }
-    }
+    // Obsolete Live Transcript Functions (removed live transcript box)
+    function showLiveTranscriptBox() {}
+    function hideLiveTranscriptBox() {}
+    function updateLiveTranscript(finalText, interimText) {}
 
     // Basic message function with markdown support for assistant messages
     function addMessage(text, type = 'user') {
+      // Route system, error and transcription confirmations to activity log
+      if (type === 'system' || type === 'error' || type === 'transcription') {
+        logActivity(text, type === 'error' ? 'error' : (type === 'transcription' ? 'success' : 'info'));
+        return;
+      }
+
       if (!chatMessages) {
         console.error('Chat messages element not found!');
         return;
@@ -1095,7 +1428,13 @@
       messageDiv.appendChild(textDiv);
 
       chatMessages.appendChild(messageDiv);
-      chatMessages.scrollTop = chatMessages.scrollHeight;
+      if (type === 'assistant') {
+        setTimeout(() => {
+          messageDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+      } else {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
     }
 
     // Markdown formatter using markdown.js library
@@ -1103,8 +1442,17 @@
       if (!text) return '';
 
       try {
-        // Use the markdown.js library for proper markdown parsing
-        if (typeof markdown !== 'undefined' && markdown.toHTML) {
+        // Use marked library if available for modern GFM parsing
+        if (typeof marked !== 'undefined' && marked.parse) {
+          if (!window._markedConfigured) {
+            marked.setOptions({
+              breaks: false,
+              gfm: true
+            });
+            window._markedConfigured = true;
+          }
+          return marked.parse(text);
+        } else if (typeof markdown !== 'undefined' && markdown.toHTML) {
           return markdown.toHTML(text);
         } else {
           console.warn('Markdown library not loaded, falling back to basic formatting');
@@ -1192,8 +1540,41 @@
       if (text && text.trim()) {
         interimOverlay.textContent = text;
         interimOverlay.classList.add('active');
+        
+        // Show in Transcript Pane in real-time
+        if (transcriptMessages) {
+          // Remove empty message if visible
+          const emptyMsg = document.getElementById('emptyTranscriptMsg');
+          if (emptyMsg) emptyMsg.remove();
+          
+          let interimSeg = document.getElementById('interimTranscriptSegment');
+          if (!interimSeg) {
+            interimSeg = document.createElement('div');
+            interimSeg.id = 'interimTranscriptSegment';
+            interimSeg.className = 'transcript-segment interim';
+            
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'transcript-time';
+            timeSpan.textContent = new Date().toLocaleTimeString();
+            
+            const textSpan = document.createElement('span');
+            textSpan.className = 'transcript-text';
+            
+            interimSeg.appendChild(timeSpan);
+            interimSeg.appendChild(textSpan);
+            transcriptMessages.appendChild(interimSeg);
+          }
+          interimSeg.querySelector('.transcript-text').textContent = text;
+          transcriptMessages.scrollTop = transcriptMessages.scrollHeight;
+        }
       } else {
         interimOverlay.classList.remove('active');
+        
+        // Remove from Transcript Pane
+        const interimSeg = document.getElementById('interimTranscriptSegment');
+        if (interimSeg) {
+          interimSeg.remove();
+        }
       }
     }
 
@@ -1204,6 +1585,11 @@
       }
       if (micButton) {
         micButton.classList.add('recording');
+      }
+      // Add recording class to the header microphone icon
+      const headerMicIcon = document.querySelector('.chat-header .header-title i.fa-microphone');
+      if (headerMicIcon) {
+        headerMicIcon.classList.add('recording');
       }
 
       showLiveTranscriptBox();
@@ -1217,6 +1603,11 @@
       }
       if (micButton) {
         micButton.classList.remove('recording');
+      }
+      // Remove recording class from the header microphone icon
+      const headerMicIcon = document.querySelector('.chat-header .header-title i.fa-microphone');
+      if (headerMicIcon) {
+        headerMicIcon.classList.remove('recording');
       }
 
       hideLiveTranscriptBox();
@@ -1303,24 +1694,28 @@
         }
       });
 
-      // Listen for speech status
+      // Listen for speech status (log to activity pane, do not toggle recording visuals)
       whysperAPI.onSpeechStatus((event, data) => {
         if (data && data.status) {
-          addMessage(data.status, 'system');
-
-          if (data.status.includes('started') || data.status.includes('Recording')) {
-            handleRecordingStarted();
-          } else if (data.status.includes('stopped') || data.status.includes('ended')) {
-            handleRecordingStopped();
-          }
+          logActivity(`[WebSpeech] Status: ${data.status}`, 'info');
         }
       });
 
       // Listen for speech errors
       whysperAPI.onSpeechError((event, data) => {
         if (data && data.error) {
-          addMessage(`Error in recognizing speech`, 'error');
-          handleRecordingStopped();
+          const lowerErr = data.error.toLowerCase();
+          const isMicError = lowerErr.includes('permission') || 
+                             lowerErr.includes('not-allowed') || 
+                             lowerErr.includes('not available') || 
+                             lowerErr.includes('audio-capture') ||
+                             lowerErr.includes('initialization');
+          if (isMicError) {
+            addMessage(`Microphone error: ${data.error}`, 'error');
+            handleRecordingStopped();
+          } else {
+            logActivity(`[WebSpeech] Non-fatal speech error: ${data.error}`, 'warning');
+          }
         }
       });
 
@@ -1410,6 +1805,29 @@
           submitAnswer();
         }
       });
+    }
+
+    // Toggle panels & action buttons
+    if (toggleTranscriptBtn) {
+      toggleTranscriptBtn.addEventListener('click', toggleTranscript);
+    }
+    if (toggleActivityBtn) {
+      toggleActivityBtn.addEventListener('click', toggleActivity);
+    }
+    if (clearSessionBtn) {
+      clearSessionBtn.addEventListener('click', async () => {
+        if (confirm('Clear session history and meeting transcripts?')) {
+          if (whysperAPI && whysperAPI.clearSessionMemory) {
+            await whysperAPI.clearSessionMemory();
+          }
+        }
+      });
+    }
+    if (exportTranscriptBtn) {
+      exportTranscriptBtn.addEventListener('click', exportTranscript);
+    }
+    if (closeActivityBtn) {
+      closeActivityBtn.addEventListener('click', toggleActivity);
     }
 
     // Screenshot banner functions
@@ -1524,6 +1942,31 @@
         console.warn('Could not load persisted meeting transcript:', error);
       }
     })();
+
+    // Restore collapsible panel states from localStorage
+    const savedTranscriptCollapsed = localStorage.getItem('transcriptCollapsed') !== 'false';
+    const savedActivityCollapsed = localStorage.getItem('activityCollapsed') !== 'false';
+
+    if (!savedTranscriptCollapsed) {
+      transcriptPane.classList.remove('collapsed');
+      toggleTranscriptBtn.classList.add('active');
+      // Resize window to 800px width on load if transcript was open
+      setTimeout(async () => {
+        if (whysperAPI && whysperAPI.getWindowStats && whysperAPI.resizeWindow) {
+          try {
+            const stats = await whysperAPI.getWindowStats();
+            const chatWindow = stats.windows?.chat;
+            const currentHeight = chatWindow ? chatWindow.height : 700;
+            await whysperAPI.resizeWindow(800, currentHeight);
+          } catch (e) {}
+        }
+      }, 500);
+    }
+
+    if (!savedActivityCollapsed) {
+      activityPane.classList.remove('collapsed');
+      toggleActivityBtn.classList.add('active');
+    }
 
     // Debug: Press F12 to toggle DevTools
     document.addEventListener('keydown', (e) => {

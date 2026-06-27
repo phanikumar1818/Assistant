@@ -860,8 +860,8 @@ class WindowManager {
     }
   }
 
-  switchToWindow(windowType) {
-    if (this.windows.has('chat') && this.windows.get('chat').isVisible()) {
+  switchToWindow(windowType, toggleIfVisible = true) {
+    if (windowType === 'chat' && toggleIfVisible && this.windows.has('chat') && this.windows.get('chat').isVisible()) {
       this.hideChatWindow();
       return;
     }

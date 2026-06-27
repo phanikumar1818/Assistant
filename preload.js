@@ -104,6 +104,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendInterimTranscription: (text) => ipcRenderer.send('web-speech-interim', { text }),
   sendSpeechStatus: (status) => ipcRenderer.send('web-speech-status', { status }),
   sendSpeechError: (error) => ipcRenderer.send('web-speech-error', { error }),
+  sendRecordingStarted: () => ipcRenderer.send('web-speech-started'),
+  sendRecordingStopped: () => ipcRenderer.send('web-speech-stopped'),
   
   // Audio transcription via Gemini
   sendAudioForTranscription: (base64Audio, options) => ipcRenderer.invoke('transcribe-audio', { base64Audio, ...options }),

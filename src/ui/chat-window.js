@@ -351,8 +351,13 @@ class ChatWindowUI {
         
         this.elements.chatMessages.appendChild(messageDiv);
         
-        // Auto-scroll to bottom
-        this.elements.chatMessages.scrollTop = this.elements.chatMessages.scrollHeight;
+        if (type === 'assistant') {
+            setTimeout(() => {
+                messageDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 50);
+        } else {
+            this.elements.chatMessages.scrollTop = this.elements.chatMessages.scrollHeight;
+        }
     }
 
     formatMarkdown(text) {

@@ -357,7 +357,7 @@ class ApplicationController {
     });
 
     ipcMain.handle("switch-to-chat", () => {
-      windowManager.switchToWindow("chat");
+      windowManager.switchToWindow("chat", false);
       return windowManager.getWindowStats();
     });
 
@@ -367,10 +367,23 @@ class ApplicationController {
     });
 
     ipcMain.handle("resize-window", (event, { width, height }) => {
-      const mainWindow = windowManager.getWindow("main");
-      if (mainWindow) {
-        mainWindow.setSize(width, height);
-        logger.debug("Main window resized", { width, height });
+      let targetWindow = null;
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (win.webContents === event.sender) {
+          targetWindow = win;
+        }
+      });
+
+      if (targetWindow) {
+        targetWindow.setSize(width, height);
+        logger.debug("Window resized based on sender", { id: targetWindow.id, width, height });
+      } else {
+        // Fallback to main window
+        const mainWindow = windowManager.getWindow("main");
+        if (mainWindow) {
+          mainWindow.setSize(width, height);
+          logger.debug("Main window resized (fallback)", { width, height });
+        }
       }
       return { success: true };
     });
@@ -522,7 +535,7 @@ class ApplicationController {
     });
 
     ipcMain.handle("toggle-continuous-listening", () => {
-      windowManager.switchToWindow("chat");
+      windowManager.switchToWindow("chat", false);
       windowManager.setInteractive(true);
       BrowserWindow.getAllWindows().forEach((window) => {
         window.webContents.send("toggle-continuous-listening");
@@ -728,7 +741,7 @@ class ApplicationController {
   }
 
   toggleSpeechRecognition() {
-    windowManager.switchToWindow("chat");
+    windowManager.switchToWindow("chat", false);
     windowManager.setInteractive(true);
 
     BrowserWindow.getAllWindows().forEach((window) => {
@@ -932,7 +945,7 @@ class ApplicationController {
 
       // Enable interaction mode and show chat window for user to type their prompt
       windowManager.setInteractive(true);
-      windowManager.switchToWindow("chat");
+      windowManager.switchToWindow("chat", false);
 
       // Add system message to session about the screenshot
       sessionManager.addConversationEvent({
