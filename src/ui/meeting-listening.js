@@ -1,6 +1,6 @@
 /**
  * Continuous meeting listening with separate system loopback + microphone capture.
- * Transcription is deferred until the user requests an answer (Enter/Send).
+ * Audio is streamed locally to the main process via AudioWorklet and IPC.
  */
 (function (global) {
   'use strict';
@@ -62,32 +62,27 @@
       this.onError = options.onError || (() => {});
       this.onListeningChange = options.onListeningChange || (() => {});
       this.onLevelUpdate = options.onLevelUpdate || (() => {});
-      this.transcribeAudio = options.transcribeAudio || null;
-      this.syncTranscript = options.syncTranscript || null;
 
       this.transcriptBuffer = new MeetingTranscriptBuffer();
       this.displayStream = null;
       this.systemStream = null;
       this.micStream = null;
       this.mixedStream = null;
-      this.systemRecorder = null;
-      this.micRecorder = null;
-      this.mixedRecorder = null;
-      this.systemChunks = [];
-      this.micChunks = [];
-      this.mixedChunks = [];
+      
       this.audioContext = null;
+      this.mixedSourceNode = null;
+      this.workletNode = null;
+      
+      this.audioChunksBuffer = [];
+      this.totalBufferedSamples = 0;
+      this.chunkTimeoutId = null;
+      this.chunkIntervalId = null;
+
       this.levelContext = null;
       this.levelAnalyser = null;
       this.levelMonitorId = null;
-      this.webSpeechService = null;
-      this._webSpeechReady = false;
       this.isListening = false;
-      this.isProcessingAnswer = false;
-      this.chunkIntervalMs = options.chunkIntervalMs || 2000;
       this.includeMicrophone = options.includeMicrophone !== false;
-      this.maxTranscribeBytes = options.maxTranscribeBytes || 12 * 1024 * 1024;
-      this.audioBitsPerSecond = options.audioBitsPerSecond || 128000;
     }
 
     get isActive() {
@@ -102,45 +97,8 @@
       try {
         this.onStatus('Starting meeting capture — select Entire Screen and enable Share system audio.');
         await this._acquireStreams();
-        this._startRecorders();
+        await this._startWorklet();
         this._setListening(true);
-
-        if (typeof WebSpeechTranscriptionService !== 'undefined') {
-          this.webSpeechService = new WebSpeechTranscriptionService({
-            lang: 'en-US',
-            onUtterance: (text) => {
-              this.transcriptBuffer.appendSegment(text, 'web-speech');
-              if (this.syncTranscript) {
-                this.syncTranscript(this.transcriptBuffer.toJSON());
-              }
-            },
-            onInterim: (text) => {
-              if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.sendInterimTranscription === 'function') {
-                window.electronAPI.sendInterimTranscription(text);
-              } else if (typeof window !== 'undefined' && typeof window.showInterimText === 'function') {
-                window.showInterimText(text);
-              }
-            },
-            onError: (err) => {
-              console.error('[WebSpeech] Error:', err);
-              this.onError('[WebSpeech] Error: ' + err);
-              if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.sendSpeechError === 'function') {
-                window.electronAPI.sendSpeechError(err);
-              }
-            },
-            onStatusChange: (status) => {
-              console.log('[WebSpeech] Status:', status);
-              this.onStatus('[WebSpeech] Status: ' + status);
-              if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.sendSpeechStatus === 'function') {
-                window.electronAPI.sendSpeechStatus(status);
-              }
-            }
-          });
-          this.webSpeechService.start();
-          this._webSpeechReady = true;
-        } else {
-          console.warn('[WebSpeech] WebSpeechTranscriptionService is not defined.');
-        }
 
         this.onStatus('Listening: system audio + microphone. Press Enter when you want an answer.');
         return { success: true };
@@ -154,20 +112,6 @@
     }
 
     stop() {
-      if (this.webSpeechService) {
-        try {
-          this.webSpeechService.stop();
-        } catch (e) {
-          console.error('[WebSpeech] Error stopping service:', e);
-        }
-        this.webSpeechService = null;
-        this._webSpeechReady = false;
-      }
-
-      this._stopLevelMonitor();
-      this._stopRecorder(this.mixedRecorder);
-      this.mixedRecorder = null;
-      this.mixedChunks = [];
       this._cleanupStreams();
       this._setListening(false);
       this.onStatus('Meeting listening stopped.');
@@ -178,61 +122,8 @@
       return this.isListening ? this.stop() : this.start();
     }
 
-    async prepareAnswerPayload(manualText = '') {
-      if (this.isProcessingAnswer) {
-        throw new Error('Already processing an answer request.');
-      }
-
-      this.isProcessingAnswer = true;
-
-      try {
-        const manual = (manualText || '').trim();
-        let newSinceLastAnswer = this.transcriptBuffer.getNewSinceLastAnswer();
-        let fallbackBytes = 0;
-
-        // If Web Speech transcript is empty, check if we should run the Gemini audio transcription fallback
-        if (!newSinceLastAnswer) {
-          console.warn('[ContinuousListeningManager] Web Speech transcript is empty, falling back to Gemini audio transcription.');
-          try {
-            const { mixedBlob } = await this._snapshotAudioForTranscription();
-            if (mixedBlob && mixedBlob.size >= 500) {
-              fallbackBytes = mixedBlob.size;
-              this.onStatus('[Fallback] Transcribing accumulated audio chunks via Gemini...');
-              const text = await this._transcribeBlob(mixedBlob, 'meeting');
-              if (text) {
-                this.transcriptBuffer.appendSegment(text, 'fallback-transcription');
-                await this._notifyTranscriptSync();
-                newSinceLastAnswer = this.transcriptBuffer.getNewSinceLastAnswer();
-              }
-            }
-          } catch (fallbackErr) {
-            console.error('[ContinuousListeningManager] Gemini transcription fallback failed:', fallbackErr);
-            this.onError('[Fallback] Gemini transcription failed: ' + fallbackErr.message);
-          }
-        } else {
-          // Clear mixedChunks buffer to prevent memory accumulation
-          this.mixedChunks = [];
-        }
-
-        const parts = [manual, newSinceLastAnswer].filter(Boolean);
-        const payload = parts.join('\n\n').trim();
-
-        return {
-          payload,
-          newTranscript: newSinceLastAnswer,
-          manualText: manual,
-          fullTranscript: this.transcriptBuffer.getFullTranscript(),
-          stats: this.transcriptBuffer.getStats(),
-          captured: { systemBytes: fallbackBytes, micBytes: 0 }
-        };
-      } finally {
-        this.isProcessingAnswer = false;
-      }
-    }
-
     markAnswerSent() {
       this.transcriptBuffer.markAnswerSent();
-      this._notifyTranscriptSync();
     }
 
     getFullTranscript() {
@@ -246,8 +137,6 @@
     getStats() {
       return {
         isListening: this.isListening,
-        pendingSystemChunks: this.systemChunks.length,
-        pendingMicChunks: this.micChunks.length,
         hasSystemStream: !!this.systemStream,
         hasMicStream: !!this.micStream,
         ...this.transcriptBuffer.getStats()
@@ -330,182 +219,126 @@
       }
     }
 
-    _getMimeType() {
-      const candidates = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/ogg;codecs=opus'
-      ];
-      return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || 'audio/webm';
-    }
+    async _startWorklet() {
+      if (!this.audioContext) {
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
 
-    _createRecorder(stream, onChunk) {
-      const mimeType = this._getMimeType();
-      const recorder = new MediaRecorder(stream, {
-        mimeType,
-        audioBitsPerSecond: this.audioBitsPerSecond
-      });
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
 
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          onChunk(event.data);
-        }
+      // Load AudioWorklet module
+      await this.audioContext.audioWorklet.addModule('src/ui/audio-processor.js');
+
+      this.mixedSourceNode = this.audioContext.createMediaStreamSource(this.mixedStream);
+      this.workletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
+
+      this.audioChunksBuffer = [];
+      this.totalBufferedSamples = 0;
+
+      this.workletNode.port.onmessage = (event) => {
+        const chunk = event.data; // Float32Array
+        this._handleAudioChunk(chunk);
       };
 
-      recorder.onerror = (event) => {
-        this.onError(event.error?.message || 'MediaRecorder error');
-      };
-
-      return recorder;
-    }
-
-    _startRecorders() {
-      this.mixedChunks = [];
-
-      this.mixedRecorder = this._createRecorder(this.mixedStream, (chunk) => {
-        this.mixedChunks.push(chunk);
-      });
-      this.mixedRecorder.start(this.chunkIntervalMs);
+      this.mixedSourceNode.connect(this.workletNode);
+      this.workletNode.connect(this.audioContext.destination);
 
       this._startLevelMonitor();
+      this._startChunkTimer();
     }
 
-    _stopRecorder(recorder) {
-      if (!recorder || recorder.state === 'inactive') return;
-      try {
-        recorder.stop();
-      } catch (err) {
-        console.warn('Error stopping recorder:', err);
+    _handleAudioChunk(chunk) {
+      if (!this.isListening) return;
+      this.audioChunksBuffer.push(chunk);
+      this.totalBufferedSamples += chunk.length;
+
+      // Keep only the last 35 seconds of audio to avoid memory leaks
+      const sampleRate = this.audioContext.sampleRate;
+      const maxSamplesToKeep = 35 * sampleRate;
+
+      while (this.totalBufferedSamples - this.audioChunksBuffer[0].length > maxSamplesToKeep) {
+        const removed = this.audioChunksBuffer.shift();
+        this.totalBufferedSamples -= removed.length;
       }
     }
 
-    async _finalizeRecorder(recorder, chunks) {
-      if (!recorder || recorder.state === 'inactive') {
-        if (!chunks.length) return null;
-        const blob = new Blob(chunks, { type: this._getMimeType() });
-        chunks.length = 0;
-        return blob.size >= 500 ? blob : null;
-      }
+    _startChunkTimer() {
+      this._stopChunkTimer();
 
-      return new Promise((resolve) => {
-        const finalChunks = [...chunks];
-        const mimeType = recorder.mimeType || this._getMimeType();
+      // Wait 30 seconds for the first chunk, then send every 25 seconds (providing a 5-second overlap)
+      this.chunkTimeoutId = setTimeout(() => {
+        if (!this.isListening) return;
+        this._sendWindowChunk();
 
-        const onData = (event) => {
-          if (event.data && event.data.size > 0) {
-            finalChunks.push(event.data);
-          }
-        };
-
-        const onStop = () => {
-          recorder.removeEventListener('dataavailable', onData);
-          chunks.length = 0;
-          if (!finalChunks.length) {
-            resolve(null);
-            return;
-          }
-          const blob = new Blob(finalChunks, { type: mimeType });
-          resolve(blob.size >= 500 ? blob : null);
-        };
-
-        recorder.addEventListener('dataavailable', onData);
-        recorder.addEventListener('stop', onStop, { once: true });
-
-        try {
-          if (recorder.state === 'recording') {
-            recorder.requestData();
-          }
-          recorder.stop();
-        } catch (err) {
-          recorder.removeEventListener('dataavailable', onData);
-          resolve(null);
-        }
-      });
+        this.chunkIntervalId = setInterval(() => {
+          if (!this.isListening) return;
+          this._sendWindowChunk();
+        }, 25000);
+      }, 30000);
     }
 
-    // Legacy: Gemini audio transcription fallback — preserved for future use
-    async _snapshotAudioForTranscription() {
-      const wasListening = this.isListening;
-      this._stopLevelMonitor();
-
-      const mixedBlob = await this._finalizeRecorder(this.mixedRecorder, this.mixedChunks);
-
-      this.mixedRecorder = null;
-
-      if (wasListening && this.mixedStream && !this.mixedStream.getAudioTracks().some((t) => t.readyState === 'ended')) {
-        this._startRecorders();
-      } else if (wasListening) {
-        this.onError('System audio track ended. Toggle listening to reconnect.');
-        this._setListening(false);
+    _stopChunkTimer() {
+      if (this.chunkTimeoutId) {
+        clearTimeout(this.chunkTimeoutId);
+        this.chunkTimeoutId = null;
       }
-
-      return { mixedBlob };
+      if (this.chunkIntervalId) {
+        clearInterval(this.chunkIntervalId);
+        this.chunkIntervalId = null;
+      }
     }
 
-    // Legacy: Gemini audio transcription fallback — preserved for future use
-    async _transcribeBlob(blob, source) {
-      if (!this.transcribeAudio) {
-        throw new Error('Transcription service not configured.');
-      }
+    _sendWindowChunk() {
+      if (this.totalBufferedSamples === 0) return;
 
-      if (blob.size > this.maxTranscribeBytes) {
-        this.onStatus('Audio segment is large — transcribing in parts...');
-        return this._transcribeBlobInTimeParts(blob, source);
-      }
+      const sampleRate = this.audioContext.sampleRate;
 
-      const base64 = await this._blobToBase64(blob);
-      const result = await this.transcribeAudio(base64, {
-        source,
-        mimeType: blob.type || this._getMimeType()
-      });
-
-      if (result?.success && result.transcript) {
-        const text = result.transcript.trim();
-        return this._isInaudible(text) ? '' : text;
-      }
-
-      throw new Error(result?.error || 'Transcription failed.');
-    }
-
-    async _transcribeBlobInTimeParts(blob, source) {
-      const partSize = Math.floor(this.maxTranscribeBytes * 0.8);
-      const transcripts = [];
+      // Concatenate the chunks in the buffer
+      const fullBuffer = new Float32Array(this.totalBufferedSamples);
       let offset = 0;
-      let part = 1;
-
-      while (offset < blob.size) {
-        const end = Math.min(offset + partSize, blob.size);
-        const slice = blob.slice(offset, end, blob.type);
-        if (slice.size >= 500) {
-          this.onStatus(`Transcribing ${source} audio part ${part}...`);
-          const base64 = await this._blobToBase64(slice);
-          const result = await this.transcribeAudio(base64, { source, mimeType: blob.type });
-          if (result?.success && result.transcript) {
-            const text = result.transcript.trim();
-            if (text && !this._isInaudible(text)) {
-              transcripts.push(text);
-            }
-          }
-          part += 1;
-        }
-        offset = end;
+      for (const chunk of this.audioChunksBuffer) {
+        fullBuffer.set(chunk, offset);
+        offset += chunk.length;
       }
 
-      return transcripts.join(' ').trim();
+      // Slice the last 30 seconds of audio
+      const samplesNeeded = 30 * sampleRate;
+      let windowBuffer;
+      if (fullBuffer.length > samplesNeeded) {
+        windowBuffer = fullBuffer.subarray(fullBuffer.length - samplesNeeded);
+      } else {
+        windowBuffer = fullBuffer;
+      }
+
+      // Resample to 16kHz
+      const resampled = this._resampleTo16k(windowBuffer, sampleRate);
+
+      // Send to main process via IPC
+      if (window.electronAPI && typeof window.electronAPI.sendAudioChunk === 'function') {
+        window.electronAPI.sendAudioChunk(resampled);
+      }
     }
 
-    _isInaudible(text) {
-      const normalized = text.toLowerCase().replace(/[\[\]()]/g, '').trim();
-      return !normalized || normalized === 'inaudible' || normalized === 'no speech' || normalized === 'silence';
-    }
+    _resampleTo16k(inputBuffer, fromSampleRate) {
+      const targetSampleRate = 16000;
+      if (fromSampleRate === targetSampleRate) {
+        return inputBuffer;
+      }
 
-    _blobToBase64(blob) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
+      const ratio = fromSampleRate / targetSampleRate;
+      const newLength = Math.round(inputBuffer.length / ratio);
+      const result = new Float32Array(newLength);
+
+      for (let i = 0; i < newLength; i++) {
+        const pos = i * ratio;
+        const index1 = Math.floor(pos);
+        const index2 = Math.min(index1 + 1, inputBuffer.length - 1);
+        const weight = pos - index1;
+        result[i] = inputBuffer[index1] * (1 - weight) + inputBuffer[index2] * weight;
+      }
+      return result;
     }
 
     _startLevelMonitor() {
@@ -559,7 +392,22 @@
     }
 
     _cleanupStreams() {
+      this._stopChunkTimer();
       this._stopLevelMonitor();
+
+      if (this.workletNode) {
+        try {
+          this.workletNode.disconnect();
+        } catch (e) {}
+        this.workletNode = null;
+      }
+      if (this.mixedSourceNode) {
+        try {
+          this.mixedSourceNode.disconnect();
+        } catch (e) {}
+        this.mixedSourceNode = null;
+      }
+
       [this.systemStream, this.micStream, this.displayStream, this.mixedStream].forEach((stream) => {
         if (!stream) return;
         stream.getTracks().forEach((track) => {
@@ -574,6 +422,7 @@
       this.micStream = null;
       this.displayStream = null;
       this.mixedStream = null;
+
       if (this.audioContext) {
         try {
           this.audioContext.close();
@@ -585,16 +434,6 @@
     _setListening(listening) {
       this.isListening = listening;
       this.onListeningChange(listening);
-    }
-
-    async _notifyTranscriptSync() {
-      if (this.syncTranscript) {
-        try {
-          await this.syncTranscript(this.transcriptBuffer.toJSON());
-        } catch (err) {
-          console.warn('Transcript sync failed:', err);
-        }
-      }
     }
 
     _formatCaptureError(err) {

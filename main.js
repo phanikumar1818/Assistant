@@ -18,6 +18,9 @@ app.commandLine.appendSwitch('no-sandbox');
 const ocrService = require("./src/services/ocr.service");
 const speechService = require("./src/services/speech.service");
 const llmService = require("./src/services/llm.service");
+const whisperService = require("./src/services/whisper.service");
+const transcriptStore = require("./src/services/transcript-store");
+const contextBuilder = require("./src/services/context-builder");
 
 // Managers
 const windowManager = require("./src/managers/window.manager");
@@ -213,55 +216,57 @@ class ApplicationController {
   }
 
   setupServiceEventHandlers() {
-    // Web Speech API events from renderer process
+    // When meeting listening starts, clear stores and reset context timers
     ipcMain.on("web-speech-started", () => {
+      logger.info("Meeting audio capture started - clearing TranscriptStore");
+      transcriptStore.clear();
+      contextBuilder.resetAnswerTimestamp();
+
       BrowserWindow.getAllWindows().forEach((window) => {
         window.webContents.send("recording-started");
       });
     });
 
     ipcMain.on("web-speech-stopped", () => {
+      logger.info("Meeting audio capture stopped");
       BrowserWindow.getAllWindows().forEach((window) => {
         window.webContents.send("recording-stopped");
       });
     });
 
-    ipcMain.on("web-speech-transcription", (event, { text }) => {
-      if (!text || text.trim().length === 0) return;
+    // Handle PCM audio chunks streamed from renderer process
+    ipcMain.on("audio-chunk", async (event, float32Array) => {
+      try {
+        // Broadcast "transcribing" status to show processing feedback in UI
+        BrowserWindow.getAllWindows().forEach((window) => {
+          window.webContents.send("whisper-status", { status: 'transcribing' });
+        });
 
-      // Just log for debugging - don't auto-process anymore
-      // User will manually send via chat input after reviewing/editing
-      logger.debug("Received web speech transcription", {
-        textLength: text.length,
-        textPreview: text.substring(0, 50) + "..."
-      });
+        logger.debug("Received audio chunk for transcription", { samples: float32Array.length });
+        const result = await whisperService.transcribe(float32Array);
 
-      // Broadcast to windows so they can update UI if needed
-      const windows = BrowserWindow.getAllWindows();
-      windows.forEach((window) => {
-        window.webContents.send("transcription-received", { text });
-      });
+        // Reset status back to idle
+        BrowserWindow.getAllWindows().forEach((window) => {
+          window.webContents.send("whisper-status", { status: 'idle' });
+        });
 
-      // NOTE: Auto-processing removed - user now reviews transcript in text field
-      // and manually presses Enter to send, which triggers 'send-chat-message' handler
-    });
-
-    ipcMain.on("web-speech-interim", (event, { text }) => {
-      BrowserWindow.getAllWindows().forEach((window) => {
-        window.webContents.send("interim-transcription", { text });
-      });
-    });
-
-    ipcMain.on("web-speech-status", (event, { status }) => {
-      BrowserWindow.getAllWindows().forEach((window) => {
-        window.webContents.send("speech-status", { status });
-      });
-    });
-
-    ipcMain.on("web-speech-error", (event, { error }) => {
-      BrowserWindow.getAllWindows().forEach((window) => {
-        window.webContents.send("speech-error", { error });
-      });
+        if (result && result.text) {
+          logger.info(`Whisper segment transcribed: "${result.text}" (latency: ${result.durationMs}ms)`);
+          
+          const segment = transcriptStore.append({ text: result.text });
+          if (segment) {
+            // Send new segment back to renderer windows for live rolling preview
+            BrowserWindow.getAllWindows().forEach((window) => {
+              window.webContents.send("transcript-segment", segment);
+            });
+          }
+        }
+      } catch (error) {
+        logger.error("Failed to transcribe audio chunk with local Whisper:", error);
+        BrowserWindow.getAllWindows().forEach((window) => {
+          window.webContents.send("whisper-status", { status: 'idle' });
+        });
+      }
     });
   }
 
@@ -430,7 +435,7 @@ class ApplicationController {
       // Check if there's a pending screenshot - if so, process with vision
       if (this.hasPendingScreenshot()) {
         logger.info('Processing chat message with pending screenshot', {
-          textLength: text.length,
+          textLength: text ? text.length : 0,
           hasPendingScreenshot: true
         });
 
@@ -440,20 +445,57 @@ class ApplicationController {
       }
 
       // Normal chat message processing (no screenshot)
-      // Add chat message to session memory
-      sessionManager.addUserInput(text, 'chat');
-      logger.debug('Chat message added to session memory', { textLength: text.length });
+      const manualText = text || '';
+      if (manualText.trim()) {
+        // Add manual chat message to session memory
+        sessionManager.addUserInput(manualText, 'chat');
+        logger.debug('Chat message added to session memory', { textLength: manualText.length });
+      }
 
-      // Process typed message with LLM in the same way as transcribed text
+      // Process with local transcript context + manualText using ContextBuilder
       setTimeout(async () => {
         try {
+          const compiledPrompt = contextBuilder.build(manualText);
+          if (!compiledPrompt) {
+            logger.warn("Skipping LLM processing for empty compiled prompt");
+            return;
+          }
+
           const sessionHistory = sessionManager.getOptimizedHistory();
-          await this.processTranscriptionWithLLM(text, sessionHistory);
+          
+          logger.info("Processing compiled prompt with intelligent LLM response", {
+            skill: this.activeSkill,
+            promptLength: compiledPrompt.length
+          });
+
+          // Check if current skill needs programming language context
+          const skillsRequiringProgrammingLanguage = ['meeting-assistant', 'programming', 'dsa', 'devops', 'system-design', 'data-science'];
+          const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
+
+          const llmResult = await llmService.processTranscriptionWithIntelligentResponse(
+            compiledPrompt,
+            this.activeSkill,
+            sessionHistory.recent,
+            needsProgrammingLanguage ? this.codingLanguage : null
+          );
+
+          // Add LLM response to session memory
+          sessionManager.addModelResponse(llmResult.response, {
+            skill: this.activeSkill,
+            processingTime: llmResult.metadata.processingTime,
+            usedFallback: llmResult.metadata.usedFallback,
+            isTranscriptionResponse: true
+          });
+
+          // Send response to chat windows
+          this.broadcastTranscriptionLLMResponse(llmResult);
+
         } catch (error) {
           logger.error("Failed to process chat message with LLM", {
             error: error.message,
-            text: text.substring(0, 100)
+            text: manualText.substring(0, 100)
           });
+          this.broadcastLLMError(error.message);
         }
       }, 500);
 
@@ -510,30 +552,6 @@ class ApplicationController {
       return await llmService.testConnection();
     });
 
-    // Continuous meeting listening (renderer captures system loopback audio)
-    ipcMain.handle("sync-meeting-transcript", (event, transcriptData) => {
-      if (transcriptData && Array.isArray(transcriptData.segments)) {
-        this.meetingTranscript = {
-          segments: transcriptData.segments,
-          lastAnswerAt: transcriptData.lastAnswerAt || 0,
-        };
-      }
-      return { success: true };
-    });
-
-    ipcMain.handle("get-meeting-transcript", () => {
-      return {
-        success: true,
-        transcript: this.meetingTranscript,
-        fullText: this.meetingTranscript.segments.map((s) => s.text).join(" ").trim(),
-        newSinceLastAnswer: this.meetingTranscript.segments
-          .filter((s) => s.timestamp >= this.meetingTranscript.lastAnswerAt)
-          .map((s) => s.text)
-          .join(" ")
-          .trim(),
-      };
-    });
-
     ipcMain.handle("toggle-continuous-listening", () => {
       windowManager.switchToWindow("chat", false);
       windowManager.setInteractive(true);
@@ -541,47 +559,6 @@ class ApplicationController {
         window.webContents.send("toggle-continuous-listening");
       });
       return { success: true };
-    });
-
-    // NOTE: As of the Web Speech refactor, this handler is no longer called in the normal flow.
-    // It is preserved as a fallback for future use or manual invocation.
-    // Do not remove it.
-    // Audio transcription via Gemini
-    ipcMain.handle("transcribe-audio", async (event, { base64Audio, source, mimeType }) => {
-      try {
-        logger.info("🎤 [MAIN] Received audio for transcription", {
-          audioSize: base64Audio ? base64Audio.length : 0,
-          source: source || "meeting",
-          mimeType: mimeType || "audio/webm"
-        });
-
-        if (!base64Audio || base64Audio.length < 100) {
-          logger.warn("🎤 [MAIN] Audio data too small or missing");
-          return { success: false, error: "Audio data too small or missing" };
-        }
-
-        const transcript = await llmService.transcribeAudio(base64Audio, {
-          source: source || "meeting",
-          mimeType: mimeType || "audio/webm;codecs=opus"
-        });
-
-        if (transcript) {
-          logger.info("🎤 [MAIN] Audio transcription successful", {
-            transcriptLength: transcript.length,
-            transcriptPreview: transcript.substring(0, 100)
-          });
-          return { success: true, transcript };
-        } else {
-          logger.warn("🎤 [MAIN] No transcription returned from LLM service");
-          return { success: false, error: "No transcription returned" };
-        }
-      } catch (error) {
-        logger.error("🎤 [MAIN] Audio transcription failed", {
-          error: error.message,
-          stack: error.stack
-        });
-        return { success: false, error: error.message };
-      }
     });
 
     ipcMain.handle("run-gemini-diagnostics", async () => {

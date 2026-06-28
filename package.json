@@ -19,7 +19,7 @@
     "clean:all": "rimraf dist/ node_modules/",
     "rebuild": "npm run clean && npm run build",
     "release": "npm run clean && npm run build:all",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "electron-builder install-app-deps && electron-rebuild",
     "setup": "npm install && echo Setup complete! Run 'npm start' to launch.",
     "setup:check": "node scripts/check-setup.js"
   },
@@ -43,6 +43,7 @@
   "devDependencies": {
     "electron": "^29.1.0",
     "electron-builder": "^24.13.3",
+    "electron-rebuild": "^3.2.9",
     "rimraf": "^5.0.5",
     "tailwindcss": "^3.4.1"
   },
@@ -68,6 +69,16 @@
       {
         "from": "eng.traineddata",
         "to": "eng.traineddata"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "models/ggml-base.en.bin",
+        "to": "models/ggml-base.en.bin"
+      },
+      {
+        "from": "bin/Release",
+        "to": "bin"
       }
     ],
     "asarUnpack": [

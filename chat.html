@@ -1127,11 +1127,13 @@
         </div>
       </div>
 
-      <!-- Right Column: Transcript Area (Collapsible) -->
       <div class="transcript-pane collapsed" id="transcriptPane">
         <div class="pane-header">
-          <div class="pane-title">
+          <div class="pane-title" style="display: flex; align-items: center; gap: 8px;">
             <i class="fas fa-file-alt"></i> Transcript Timeline
+            <span id="whisperStatusIndicator" style="font-size: 11px; font-weight: normal; color: #ffa726; display: none; align-items: center; gap: 4px;">
+              <i class="fas fa-spinner fa-spin"></i> Transcribing...
+            </span>
           </div>
           <button class="export-btn" id="exportTranscriptBtn" title="Export Transcript to TXT">
             <i class="fas fa-download"></i> Export
@@ -1319,7 +1321,6 @@
 
     const meetingListener = new MeetingListening.ContinuousListeningManager({
       includeMicrophone: true,
-      chunkIntervalMs: 2000,
       onStatus: (status) => {
         logActivity(status, 'info');
       },
@@ -1357,19 +1358,6 @@
         if (isListening && transcriptInterim) {
           transcriptInterim.textContent = audioLevelHint;
         }
-      },
-      transcribeAudio: (base64Audio, options) => {
-        if (!whysperAPI?.sendAudioForTranscription) {
-          return Promise.resolve({ success: false, error: 'Transcription unavailable' });
-        }
-        return whysperAPI.sendAudioForTranscription(base64Audio, options);
-      },
-      syncTranscript: (data) => {
-        if (whysperAPI?.syncMeetingTranscript) {
-          whysperAPI.syncMeetingTranscript(data);
-        }
-        refreshTranscriptPreview();
-        return Promise.resolve();
       }
     });
 
@@ -1624,35 +1612,28 @@
       handleListeningStopped();
     }
 
-    function handleTranscription(text) {
-      if (text && typeof text === 'string' && text.trim().length > 0) {
-        meetingListener.transcriptBuffer.appendSegment(text.trim(), 'external');
-        refreshTranscriptPreview();
-      }
-    }
-
     async function submitAnswer() {
       const manualText = messageInput ? messageInput.value.trim() : '';
 
       try {
-        const prepared = await meetingListener.prepareAnswerPayload(manualText);
-        const textToSend = prepared.payload;
+        let hasScreenshot = false;
+        if (whysperAPI && whysperAPI.hasPendingScreenshot) {
+          const res = await whysperAPI.hasPendingScreenshot();
+          hasScreenshot = !!res.hasPendingScreenshot;
+        }
 
-        if (!textToSend) {
-          const stats = prepared.captured || {};
-          addMessage(
-            `Nothing transcribed yet. System: ${Math.round((stats.systemBytes || 0) / 1024)}KB, Mic: ${Math.round((stats.micBytes || 0) / 1024)}KB captured. ` +
-            'Keep listening longer, ensure system audio is shared, then press Enter again — or type a question manually.',
-            'system'
-          );
+        const newTranscript = meetingListener.getNewSinceLastAnswer();
+        if (!manualText && !newTranscript && !hasScreenshot) {
+          addMessage('No speech captured yet. Please speak or type a question.', 'system');
           return;
         }
 
-        if (prepared.newTranscript) {
-          addMessage(`Heard: "${prepared.newTranscript.substring(0, 200)}${prepared.newTranscript.length > 200 ? '…' : ''}"`, 'transcription');
+        if (manualText) {
+          addMessage(manualText, 'user');
+        } else if (newTranscript) {
+          addMessage(`Heard: "${newTranscript.substring(0, 200)}${newTranscript.length > 200 ? '…' : ''}"`, 'transcription');
         }
 
-        addMessage(textToSend, 'user');
         if (messageInput) {
           messageInput.value = '';
         }
@@ -1664,57 +1645,37 @@
         }, 300);
 
         if (whysperAPI && whysperAPI.sendChatMessage) {
-          await whysperAPI.sendChatMessage(textToSend);
+          await whysperAPI.sendChatMessage(manualText);
         }
 
         meetingListener.markAnswerSent();
         refreshTranscriptPreview();
       } catch (error) {
         hideThinkingIndicator();
-        addMessage(`Failed to prepare answer: ${error.message}`, 'error');
+        addMessage(`Failed to submit answer: ${error.message}`, 'error');
         console.error('submitAnswer failed:', error);
       }
     }
 
-    // Basic IPC Event Listeners - simplified
+    // Basic IPC Event Listeners
 
-    // Listen for transcription events
     if (whysperAPI) {
-      whysperAPI.onTranscriptionReceived((event, data) => {
-        if (data && data.text) {
-          handleTranscription(data.text);
-        } else {
-          console.warn('Invalid transcription data received:', data);
+      // Listen for local Whisper transcription segments
+      whysperAPI.onTranscriptSegment((segment) => {
+        if (segment && segment.text) {
+          meetingListener.transcriptBuffer.appendSegment(segment.text, 'whisper');
+          refreshTranscriptPreview();
         }
       });
 
-      whysperAPI.onInterimTranscription((event, data) => {
-        if (data && data.text) {
-          showInterimText(data.text);
-        }
-      });
-
-      // Listen for speech status (log to activity pane, do not toggle recording visuals)
-      whysperAPI.onSpeechStatus((event, data) => {
-        if (data && data.status) {
-          logActivity(`[WebSpeech] Status: ${data.status}`, 'info');
-        }
-      });
-
-      // Listen for speech errors
-      whysperAPI.onSpeechError((event, data) => {
-        if (data && data.error) {
-          const lowerErr = data.error.toLowerCase();
-          const isMicError = lowerErr.includes('permission') || 
-                             lowerErr.includes('not-allowed') || 
-                             lowerErr.includes('not available') || 
-                             lowerErr.includes('audio-capture') ||
-                             lowerErr.includes('initialization');
-          if (isMicError) {
-            addMessage(`Microphone error: ${data.error}`, 'error');
-            handleRecordingStopped();
+      // Listen for Whisper status to show "Transcribing..." indicator
+      whysperAPI.onWhisperStatus((data) => {
+        const indicator = document.getElementById('whisperStatusIndicator');
+        if (indicator) {
+          if (data && data.status === 'transcribing') {
+            indicator.style.display = 'inline-flex';
           } else {
-            logActivity(`[WebSpeech] Non-fatal speech error: ${data.error}`, 'warning');
+            indicator.style.display = 'none';
           }
         }
       });

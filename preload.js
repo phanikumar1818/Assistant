@@ -17,8 +17,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startSpeechRecognition: () => ipcRenderer.invoke('toggle-continuous-listening'),
   stopSpeechRecognition: () => ipcRenderer.invoke('toggle-continuous-listening'),
   toggleContinuousListening: () => ipcRenderer.invoke('toggle-continuous-listening'),
-  syncMeetingTranscript: (transcriptData) => ipcRenderer.invoke('sync-meeting-transcript', transcriptData),
-  getMeetingTranscript: () => ipcRenderer.invoke('get-meeting-transcript'),
   
   // Window management
   showAllWindows: () => ipcRenderer.invoke('show-all-windows'),
@@ -99,16 +97,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Legacy alias
   onToggleSpeechRecognition: (callback) => ipcRenderer.on('toggle-continuous-listening', callback),
   
-  // Web Speech API communication helpers
-  sendTranscription: (text) => ipcRenderer.send('web-speech-transcription', { text }),
-  sendInterimTranscription: (text) => ipcRenderer.send('web-speech-interim', { text }),
-  sendSpeechStatus: (status) => ipcRenderer.send('web-speech-status', { status }),
-  sendSpeechError: (error) => ipcRenderer.send('web-speech-error', { error }),
+  // Web Speech API communication helpers (session management)
   sendRecordingStarted: () => ipcRenderer.send('web-speech-started'),
   sendRecordingStopped: () => ipcRenderer.send('web-speech-stopped'),
   
-  // Audio transcription via Gemini
-  sendAudioForTranscription: (base64Audio, options) => ipcRenderer.invoke('transcribe-audio', { base64Audio, ...options }),
+  // Local Whisper transcription IPC helpers
+  sendAudioChunk: (float32Array) => ipcRenderer.send('audio-chunk', float32Array),
+  onTranscriptSegment: (callback) => ipcRenderer.on('transcript-segment', (event, segment) => callback(segment)),
+  onWhisperStatus: (callback) => ipcRenderer.on('whisper-status', (event, status) => callback(status)),
   
   // Generic receive method
   receive: (channel, callback) => ipcRenderer.on(channel, callback),
