@@ -180,6 +180,23 @@ async function setupWhisperBinaries() {
       if (fs.existsSync(tempZipPath)) {
         fs.unlinkSync(tempZipPath);
       }
+
+      // Handle nested Release directory inside the zip
+      const nestedReleaseDir = path.join(BIN_DIR, 'Release');
+      if (fs.existsSync(nestedReleaseDir)) {
+        console.log('  Flattening nested Release directory...');
+        const files = fs.readdirSync(nestedReleaseDir);
+        for (const file of files) {
+          const srcPath = path.join(nestedReleaseDir, file);
+          const destPath = path.join(BIN_DIR, file);
+          if (fs.existsSync(destPath)) {
+            try { fs.unlinkSync(destPath); } catch (_) {}
+          }
+          fs.renameSync(srcPath, destPath);
+        }
+        try { fs.rmdirSync(nestedReleaseDir); } catch (_) {}
+      }
+
       console.log(`  ${colors.green}✓ Successfully downloaded and extracted Whisper.cpp binaries.${colors.reset}`);
     } catch (err) {
       console.error(`  ${colors.red}✗ Failed to download/extract Whisper binaries: ${err.message}${colors.reset}`);
