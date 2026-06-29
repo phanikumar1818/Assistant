@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const logger = require('../core/logger').createServiceLogger('WHISPER_SERVICE');
 
 class WhisperService {
@@ -11,7 +11,13 @@ class WhisperService {
     this.queue = [];
     this.isProcessing = false;
     
+    this.serverProcess = null;
+    this.serverPort = null;
+    this.serverExePath = this._resolveServerExePath();
+
     this._eagerLoadModel();
+    // Start Whisper server in the background
+    this.startServer();
   }
 
   _resolveExePath() {
@@ -25,6 +31,18 @@ class WhisperService {
       return packagedPath;
     }
     logger.info(`Using dev whisper-cli executable: ${devPath}`);
+    return devPath;
+  }
+
+  _resolveServerExePath() {
+    const packagedPath = process.resourcesPath ? path.join(process.resourcesPath, 'bin', 'whisper-server.exe') : '';
+    const devPath = path.join(__dirname, '../../bin/Release/whisper-server.exe');
+
+    if (packagedPath && fs.existsSync(packagedPath)) {
+      logger.info(`Using packaged whisper-server executable: ${packagedPath}`);
+      return packagedPath;
+    }
+    logger.info(`Using dev whisper-server executable: ${devPath}`);
     return devPath;
   }
 
@@ -47,12 +65,116 @@ class WhisperService {
     if (!fs.existsSync(this.exePath)) {
       logger.error(`whisper-cli executable not found at: ${this.exePath}`);
     }
+    if (!fs.existsSync(this.serverExePath)) {
+      logger.error(`whisper-server executable not found at: ${this.serverExePath}`);
+    }
     if (!fs.existsSync(this.modelPath)) {
       logger.error(`Model file not found at: ${this.modelPath}`);
     }
   }
 
-  transcribe(pcmFloat32Array) {
+  _getFreePort() {
+    const net = require('net');
+    return new Promise((resolve, reject) => {
+      const server = net.createServer();
+      server.unref();
+      server.on('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const port = server.address().port;
+        server.close(() => resolve(port));
+      });
+    });
+  }
+
+  async startServer() {
+    if (this.serverProcess) return;
+
+    logger.info('Starting local Whisper server sidecar...');
+    try {
+      this.serverPort = await this._getFreePort();
+      
+      if (!fs.existsSync(this.serverExePath)) {
+        throw new Error(`whisper-server.exe not found at: ${this.serverExePath}`);
+      }
+      if (!fs.existsSync(this.modelPath)) {
+        throw new Error(`Model file not found at: ${this.modelPath}`);
+      }
+
+      logger.info(`Spawning Whisper server on port ${this.serverPort}...`);
+      this.serverProcess = spawn(this.serverExePath, [
+        '-m', this.modelPath,
+        '--port', this.serverPort.toString(),
+        '--host', '127.0.0.1',
+        '-t', Math.min(4, Math.max(2, os.cpus().length - 2)).toString(),
+        '--suppress-nst',
+        '--no-timestamps'
+      ], {
+        cwd: path.dirname(this.serverExePath),
+        detached: false
+      });
+
+      this.serverProcess.stderr.on('data', (data) => {
+        logger.info(`[Whisper Server stderr] ${data.toString().trim()}`);
+      });
+      this.serverProcess.stdout.on('data', (data) => {
+        logger.info(`[Whisper Server stdout] ${data.toString().trim()}`);
+      });
+
+      this.serverProcess.on('exit', (code, signal) => {
+        logger.warn(`Whisper server process exited with code ${code} and signal ${signal}`);
+        this.serverProcess = null;
+        this.serverPort = null;
+      });
+
+      await this._waitForServer(this.serverPort);
+      logger.info(`Whisper server is active on port ${this.serverPort}`);
+    } catch (err) {
+      logger.error('Failed to start local Whisper server, will fall back to CLI transcription:', err);
+      this.serverProcess = null;
+      this.serverPort = null;
+    }
+  }
+
+  async _waitForServer(port, timeoutMs = 60000) {
+    const net = require('net');
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const isAlive = await new Promise((resolve) => {
+        const socket = new net.Socket();
+        socket.setTimeout(1000);
+        socket.on('connect', () => {
+          socket.destroy();
+          resolve(true);
+        });
+        socket.on('error', () => {
+          socket.destroy();
+          resolve(false);
+        });
+        socket.on('timeout', () => {
+          socket.destroy();
+          resolve(false);
+        });
+        socket.connect(port, '127.0.0.1');
+      });
+
+      if (isAlive) {
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error('Whisper server startup timeout');
+  }
+
+  stopServer() {
+    if (this.serverProcess) {
+      logger.info('Stopping local Whisper server...');
+      this.serverProcess.kill();
+      this.serverProcess = null;
+      this.serverPort = null;
+    }
+  }
+
+  transcribe(pcmFloat32Array, promptText = '') {
     let samples = pcmFloat32Array;
     if (!(samples instanceof Float32Array)) {
       if (Buffer.isBuffer(samples) || samples instanceof Uint8Array) {
@@ -68,7 +190,7 @@ class WhisperService {
       }
     }
     return new Promise((resolve, reject) => {
-      this.queue.push({ pcmFloat32Array: samples, resolve, reject });
+      this.queue.push({ pcmFloat32Array: samples, promptText, resolve, reject });
       this._processQueue();
     });
   }
@@ -77,11 +199,11 @@ class WhisperService {
     if (this.isProcessing || this.queue.length === 0) return;
     this.isProcessing = true;
 
-    const { pcmFloat32Array, resolve, reject } = this.queue.shift();
+    const { pcmFloat32Array, promptText, resolve, reject } = this.queue.shift();
 
     try {
       const startTime = Date.now();
-      const text = await this._transcribeAudio(pcmFloat32Array);
+      const text = await this._transcribeAudio(pcmFloat32Array, promptText);
       const durationMs = Date.now() - startTime;
       resolve({ text, durationMs });
     } catch (err) {
@@ -89,12 +211,75 @@ class WhisperService {
       reject(err);
     } finally {
       this.isProcessing = false;
-      // Process the next chunk immediately
       setImmediate(() => this._processQueue());
     }
   }
 
-  async _transcribeAudio(pcmFloat32Array) {
+  _cleanText(text, promptText = '') {
+    if (!text) return '';
+    let cleaned = text.trim();
+    
+    // Remove common bracketed whisper hallucinations/sounds
+    cleaned = cleaned.replace(/\[[^\]]*\]/g, ''); 
+    cleaned = cleaned.replace(/\([^)]*\)/g, ''); 
+    
+    // Clean up specific words often hallucinated in quiet or background noise
+    cleaned = cleaned.replace(/^(music|silence|sigh|laughter|cough|clicks|throat-clearing|coughing|chuckle|snicker)\.?$/i, '');
+    cleaned = cleaned.replace(/^(um|uh|ah|er|oh)\.?$/i, ''); 
+    
+    // Trim extra spaces
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    
+    // If the text contains only punctuation/symbols, return empty
+    if (/^[.,\/#!$%\^&\*;:{}=\-_`~()?\s]+$/.test(cleaned)) {
+      return '';
+    }
+
+    // Repetition check: If Whisper returns exactly the prompt (or a subset of it), it's a hallucination
+    if (promptText) {
+      const cleanPrompt = promptText.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g,"");
+      const cleanCleaned = cleaned.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g,"");
+      if (cleanPrompt.includes(cleanCleaned)) {
+        return '';
+      }
+    }
+    
+    return cleaned;
+  }
+
+  async _transcribeAudio(pcmFloat32Array, promptText = '') {
+    if (this.serverPort) {
+      try {
+        const wavBuffer = this._createWavBuffer(pcmFloat32Array, 16000);
+        const formData = new FormData();
+        const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+        formData.append('file', blob, 'audio.wav');
+        formData.append('temperature', '0.0');
+        formData.append('response_format', 'json');
+        if (promptText) {
+          formData.append('prompt', promptText);
+        }
+
+        const response = await fetch(`http://127.0.0.1:${this.serverPort}/inference`, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        const text = result.text ? result.text.trim() : '';
+        return this._cleanText(text, promptText);
+      } catch (err) {
+        logger.error('Error during server transcription, falling back to CLI execution:', err);
+      }
+    }
+    return this._transcribeAudioCLI(pcmFloat32Array, promptText);
+  }
+
+  async _transcribeAudioCLI(pcmFloat32Array, promptText = '') {
     // Generate a unique temporary WAV file path
     const tempDir = path.join(os.tmpdir(), 'vysper_whisper');
     if (!fs.existsSync(tempDir)) {
@@ -107,12 +292,18 @@ class WhisperService {
       const wavBuffer = this._createWavBuffer(pcmFloat32Array, 16000);
       fs.writeFileSync(tempWavPath, wavBuffer);
 
+      const args = [
+        '-m', this.modelPath,
+        '-f', tempWavPath,
+        '-nt' // no timestamps flag
+      ];
+
+      if (promptText) {
+        args.push('--prompt', promptText);
+      }
+
       const result = await new Promise((resolve, reject) => {
-        execFile(this.exePath, [
-          '-m', this.modelPath,
-          '-f', tempWavPath,
-          '-nt' // no timestamps flag
-        ], {
+        execFile(this.exePath, args, {
           cwd: path.dirname(this.exePath)
         }, (error, stdout, stderr) => {
           if (error) {
@@ -122,7 +313,7 @@ class WhisperService {
           resolve(stdout.trim());
         });
       });
-      return result;
+      return this._cleanText(result, promptText);
     } finally {
       // Clean up the temporary file
       try {

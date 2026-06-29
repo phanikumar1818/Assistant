@@ -2,6 +2,34 @@
  * Continuous meeting listening with separate system loopback + microphone capture.
  * Audio is streamed locally to the main process via AudioWorklet and IPC.
  */
+// Import and instantiate MeetingMemoryService as a singleton. Pass the same LLMService instance already used in the file.
+let meetingMemoryService;
+try {
+  if (typeof require !== 'undefined') {
+    const llmService = require('../services/llm.service');
+    const MeetingMemoryServiceClass = require('../services/meeting-memory.service');
+    meetingMemoryService = new MeetingMemoryServiceClass(llmService);
+  } else {
+    // Fallback to Electron IPC when running in the browser renderer process
+    meetingMemoryService = {
+      appendTranscript: (text, timestamp) => {
+        if (window.electronAPI && typeof window.electronAPI.appendTranscript === 'function') {
+          window.electronAPI.appendTranscript(text, timestamp);
+        }
+      }
+    };
+  }
+} catch (e) {
+  console.warn('[MEMORY] Direct require failed, using IPC bridge for MeetingMemoryService:', e.message);
+  meetingMemoryService = {
+    appendTranscript: (text, timestamp) => {
+      if (window.electronAPI && typeof window.electronAPI.appendTranscript === 'function') {
+        window.electronAPI.appendTranscript(text, timestamp);
+      }
+    }
+  };
+}
+
 (function (global) {
   'use strict';
 
@@ -15,8 +43,36 @@
       const trimmed = (text || '').trim();
       if (!trimmed) return null;
 
-      const segment = { text: trimmed, timestamp: Date.now(), source };
+      const now = Date.now();
+      if (this.segments.length > 0) {
+        const lastSegment = this.segments[this.segments.length - 1];
+        const timeDiff = now - lastSegment.timestamp;
+        
+        // Count words in the last segment
+        const words = lastSegment.text.split(/\s+/).filter(Boolean);
+
+        // Append to the last segment only if it is within 5 seconds and the segment has less than 25 words
+        if (timeDiff < 5000 && words.length < 25) {
+          lastSegment.text += ' ' + trimmed;
+          lastSegment.timestamp = now;
+
+          // After existing transcript append logic:
+          const finalTranscript = trimmed;
+          const timestamp = new Date().toLocaleTimeString();
+          meetingMemoryService.appendTranscript(finalTranscript, timestamp);
+
+          return lastSegment;
+        }
+      }
+
+      const segment = { text: trimmed, timestamp: now, source };
       this.segments.push(segment);
+
+      // After existing transcript append logic:
+      const finalTranscript = trimmed;
+      const timestamp = new Date().toLocaleTimeString();
+      meetingMemoryService.appendTranscript(finalTranscript, timestamp);
+
       return segment;
     }
 
@@ -72,10 +128,10 @@
       this.audioContext = null;
       this.mixedSourceNode = null;
       this.workletNode = null;
-      
+
+      // Fixed-interval transcription settings
       this.audioChunksBuffer = [];
       this.totalBufferedSamples = 0;
-      this.chunkTimeoutId = null;
       this.chunkIntervalId = null;
 
       this.levelContext = null;
@@ -112,6 +168,7 @@
     }
 
     stop() {
+      this._sendAudioWindow();
       this._cleanupStreams();
       this._setListening(false);
       this.onStatus('Meeting listening stopped.');
@@ -253,49 +310,36 @@
       if (!this.isListening) return;
       this.audioChunksBuffer.push(chunk);
       this.totalBufferedSamples += chunk.length;
-
-      // Keep only the last 35 seconds of audio to avoid memory leaks
-      const sampleRate = this.audioContext.sampleRate;
-      const maxSamplesToKeep = 35 * sampleRate;
-
-      while (this.totalBufferedSamples - this.audioChunksBuffer[0].length > maxSamplesToKeep) {
-        const removed = this.audioChunksBuffer.shift();
-        this.totalBufferedSamples -= removed.length;
-      }
     }
 
     _startChunkTimer() {
       this._stopChunkTimer();
-
-      // Wait 30 seconds for the first chunk, then send every 25 seconds (providing a 5-second overlap)
-      this.chunkTimeoutId = setTimeout(() => {
-        if (!this.isListening) return;
-        this._sendWindowChunk();
-
-        this.chunkIntervalId = setInterval(() => {
-          if (!this.isListening) return;
-          this._sendWindowChunk();
-        }, 25000);
-      }, 30000);
+      // Slice and transcribe a 4-second chunk every 4 seconds
+      this.chunkIntervalId = setInterval(() => {
+        this._sendAudioWindow();
+      }, 4000);
     }
 
     _stopChunkTimer() {
-      if (this.chunkTimeoutId) {
-        clearTimeout(this.chunkTimeoutId);
-        this.chunkTimeoutId = null;
-      }
       if (this.chunkIntervalId) {
         clearInterval(this.chunkIntervalId);
         this.chunkIntervalId = null;
       }
     }
 
-    _sendWindowChunk() {
+    _calculateRMS(array) {
+      if (array.length === 0) return 0;
+      let sum = 0;
+      for (let i = 0; i < array.length; i++) {
+        sum += array[i] * array[i];
+      }
+      return Math.sqrt(sum / array.length);
+    }
+
+    _sendAudioWindow() {
       if (this.totalBufferedSamples === 0) return;
 
       const sampleRate = this.audioContext.sampleRate;
-
-      // Concatenate the chunks in the buffer
       const fullBuffer = new Float32Array(this.totalBufferedSamples);
       let offset = 0;
       for (const chunk of this.audioChunksBuffer) {
@@ -303,17 +347,18 @@
         offset += chunk.length;
       }
 
-      // Slice the last 30 seconds of audio
-      const samplesNeeded = 30 * sampleRate;
-      let windowBuffer;
-      if (fullBuffer.length > samplesNeeded) {
-        windowBuffer = fullBuffer.subarray(fullBuffer.length - samplesNeeded);
-      } else {
-        windowBuffer = fullBuffer;
+      // Clear buffers
+      this.audioChunksBuffer = [];
+      this.totalBufferedSamples = 0;
+
+      // Skip silent chunks
+      const rms = this._calculateRMS(fullBuffer);
+      if (rms < 0.0005) {
+        return;
       }
 
       // Resample to 16kHz
-      const resampled = this._resampleTo16k(windowBuffer, sampleRate);
+      const resampled = this._resampleTo16k(fullBuffer, sampleRate);
 
       // Send to main process via IPC
       if (window.electronAPI && typeof window.electronAPI.sendAudioChunk === 'function') {
@@ -429,6 +474,9 @@
         } catch (err) {}
         this.audioContext = null;
       }
+
+      this.audioChunksBuffer = [];
+      this.totalBufferedSamples = 0;
     }
 
     _setListening(listening) {

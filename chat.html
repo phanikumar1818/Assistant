@@ -1340,6 +1340,7 @@
       },
       onListeningChange: (listening) => {
         isListening = listening;
+        window._interimTranscriptText = ''; // Clear interim text
         if (listening) {
           if (whysperAPI && whysperAPI.sendRecordingStarted) {
             whysperAPI.sendRecordingStarted();

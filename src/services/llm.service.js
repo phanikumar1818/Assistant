@@ -1290,6 +1290,44 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
 
     return text.trim();
   }
+
+  async callGeminiRaw(prompt, logLabel) {
+    console.log(`[LLM CALL - ${logLabel}] Sending ${prompt.length} chars to Gemini`);
+    
+    try {
+      const apiKey = config.getApiKey('GEMINI');
+      // Use configured model or fallback to gemini-2.5-flash
+      const model = config.get('llm.gemini.model') || 'gemini-2.5-flash';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      
+      const geminiRequest = {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }]
+          }
+        ],
+        generationConfig: {
+          maxOutputTokens: 2048,
+          temperature: 0.1
+        }
+      };
+      
+      const postData = JSON.stringify(geminiRequest);
+      
+      let responseText;
+      try {
+        responseText = await this.executeWithElectronNet(url, postData);
+      } catch (electronError) {
+        logger.warn(`[LLM CALL - ${logLabel}] Electron net module failed, trying https module: ${electronError.message}`);
+        responseText = await this.executeWithHttps(url, postData);
+      }
+      return responseText;
+    } catch (error) {
+      console.log(`[LLM ERROR - ${logLabel}] ${error.message}`);
+      throw error;
+    }
+  }
 }
 
 module.exports = new LLMService();

@@ -37,6 +37,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendChatMessage: (text) => ipcRenderer.invoke('send-chat-message', text),
   getSkillPrompt: (skillName) => ipcRenderer.invoke('get-skill-prompt', skillName),
   
+  // Meeting Memory
+  getMemorySnapshot: () => ipcRenderer.invoke('get-memory-snapshot'),
+  exportMeetingSession: () => ipcRenderer.invoke('export-meeting-session'),
+  appendTranscript: (text, timestamp) => ipcRenderer.invoke('append-transcript', text, timestamp),
+  
   // Gemini LLM configuration
   setGeminiApiKey: (apiKey) => ipcRenderer.invoke('set-gemini-api-key', apiKey),
   getGeminiStatus: () => ipcRenderer.invoke('get-gemini-status'),

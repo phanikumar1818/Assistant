@@ -1,0 +1,19 @@
+You are maintaining a running narrative summary of a meeting in progress.
+CURRENT NARRATIVE SUMMARY:
+
+{{CURRENT_NARRATIVE}}
+NEW TRANSCRIPT SEGMENT TO INCORPORATE:
+
+{{TRANSCRIPT_CHUNK}}
+Update the narrative summary by incorporating the new segment. The updated summary must:
+
+Be 400–600 tokens long (approximately 300–450 words)
+Describe what has been discussed, what the current focus is, and where the meeting stands
+Preserve important context from the previous narrative
+Remove redundancy and merge related topics naturally
+Be written in present-perfect tense ("The team has discussed...", "The group has agreed...")
+NOT be a bullet list — write flowing prose
+NOT include specific decisions or action items (those are tracked separately)
+Focus on narrative flow, context, and overall meeting progression
+
+Return ONLY the updated narrative text. No preamble, no explanation, no formatting — just the paragraph.

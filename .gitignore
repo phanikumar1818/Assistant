@@ -1,6 +1,12 @@
 # Dependencies
 node_modules/
 
+# Binaries (built files)
+bin/
+
+#models
+models/
+
 # Environment (keep env.example)
 .env
 .env.local

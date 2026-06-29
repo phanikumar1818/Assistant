@@ -21,6 +21,8 @@ const llmService = require("./src/services/llm.service");
 const whisperService = require("./src/services/whisper.service");
 const transcriptStore = require("./src/services/transcript-store");
 const contextBuilder = require("./src/services/context-builder");
+const MeetingMemoryService = require("./src/services/meeting-memory.service");
+const meetingMemoryService = new MeetingMemoryService(llmService);
 
 // Managers
 const windowManager = require("./src/managers/window.manager");
@@ -237,22 +239,24 @@ class ApplicationController {
     // Handle PCM audio chunks streamed from renderer process
     ipcMain.on("audio-chunk", async (event, float32Array) => {
       try {
-        // Broadcast "transcribing" status to show processing feedback in UI
         BrowserWindow.getAllWindows().forEach((window) => {
           window.webContents.send("whisper-status", { status: 'transcribing' });
         });
 
         logger.debug("Received audio chunk for transcription", { samples: float32Array.length });
-        const result = await whisperService.transcribe(float32Array);
+        
+        // Get the last 2 segments of text to use as prompt context
+        const allSegments = transcriptStore.getAll();
+        const previousText = allSegments.slice(-2).map(s => s.text).join(" ");
+        
+        const result = await whisperService.transcribe(float32Array, previousText);
 
-        // Reset status back to idle
         BrowserWindow.getAllWindows().forEach((window) => {
           window.webContents.send("whisper-status", { status: 'idle' });
         });
 
         if (result && result.text) {
           logger.info(`Whisper segment transcribed: "${result.text}" (latency: ${result.durationMs}ms)`);
-          
           const segment = transcriptStore.append({ text: result.text });
           if (segment) {
             // Send new segment back to renderer windows for live rolling preview
@@ -414,8 +418,22 @@ class ApplicationController {
       return sessionManager.getOptimizedHistory();
     });
 
+    ipcMain.handle("get-memory-snapshot", () => {
+      return meetingMemoryService.getMemorySnapshot();
+    });
+
+    ipcMain.handle("export-meeting-session", () => {
+      return meetingMemoryService.exportSession();
+    });
+
+    ipcMain.handle("append-transcript", (event, text, timestamp) => {
+      meetingMemoryService.appendTranscript(text, timestamp);
+      return { success: true };
+    });
+
     ipcMain.handle("clear-session-memory", () => {
       sessionManager.clear();
+      meetingMemoryService.clear();
       this.meetingTranscript = { segments: [], lastAnswerAt: 0 };
       windowManager.broadcastToAllWindows("session-cleared");
       return { success: true };
@@ -461,11 +479,19 @@ class ApplicationController {
             return;
           }
 
+          const meetingMemory = meetingMemoryService.getContextForQuestion();
+          const memoryWords = meetingMemory.split(/\s+/).filter(Boolean).length;
+          const tokenEstimate = Math.ceil(memoryWords * 1.33);
+          console.log(`[QUESTION CONTEXT] Injecting meeting memory into LLM call. Total memory: ~${tokenEstimate} tokens`);
+          logger.info(`[QUESTION CONTEXT] Injecting meeting memory into LLM call. Total memory: ~${tokenEstimate} tokens`);
+
+          const compiledPromptWithMemory = meetingMemory + "\n\n" + compiledPrompt;
+
           const sessionHistory = sessionManager.getOptimizedHistory();
           
           logger.info("Processing compiled prompt with intelligent LLM response", {
             skill: this.activeSkill,
-            promptLength: compiledPrompt.length
+            promptLength: compiledPromptWithMemory.length
           });
 
           // Check if current skill needs programming language context
@@ -473,7 +499,7 @@ class ApplicationController {
           const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
 
           const llmResult = await llmService.processTranscriptionWithIntelligentResponse(
-            compiledPrompt,
+            compiledPromptWithMemory,
             this.activeSkill,
             sessionHistory.recent,
             needsProgrammingLanguage ? this.codingLanguage : null
@@ -696,6 +722,12 @@ class ApplicationController {
         const { app } = require("electron");
         windowManager.destroyAllWindows();
         globalShortcut.unregisterAll();
+        
+        // Terminate local Whisper server
+        try {
+          whisperService.stopServer();
+        } catch (err) {}
+
         app.quit();
         setTimeout(() => process.exit(0), 1000);
       } catch (error) {
@@ -731,6 +763,7 @@ class ApplicationController {
   clearSessionMemory() {
     try {
       sessionManager.clear();
+      meetingMemoryService.clear();
       windowManager.broadcastToAllWindows("session-cleared");
       logger.info("Session memory cleared via global shortcut");
     } catch (error) {
@@ -1124,12 +1157,20 @@ class ApplicationController {
         textPreview: cleanText.substring(0, 100) + "..."
       });
 
+      const meetingMemory = meetingMemoryService.getContextForQuestion();
+      const memoryWords = meetingMemory.split(/\s+/).filter(Boolean).length;
+      const tokenEstimate = Math.ceil(memoryWords * 1.33);
+      console.log(`[QUESTION CONTEXT] Injecting meeting memory into LLM call. Total memory: ~${tokenEstimate} tokens`);
+      logger.info(`[QUESTION CONTEXT] Injecting meeting memory into LLM call. Total memory: ~${tokenEstimate} tokens`);
+
+      const cleanTextWithMemory = meetingMemory + "\n\n" + cleanText;
+
       // Check if current skill needs programming language context
       const skillsRequiringProgrammingLanguage = ['meeting-assistant', 'programming', 'dsa', 'devops', 'system-design', 'data-science'];
       const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
 
       const llmResult = await llmService.processTranscriptionWithIntelligentResponse(
-        cleanText,
+        cleanTextWithMemory,
         this.activeSkill,
         sessionHistory.recent,
         needsProgrammingLanguage ? this.codingLanguage : null
@@ -1283,6 +1324,13 @@ class ApplicationController {
   onWillQuit() {
     globalShortcut.unregisterAll();
     windowManager.destroyAllWindows();
+
+    // Terminate local Whisper server
+    try {
+      whisperService.stopServer();
+    } catch (err) {
+      logger.error("Error stopping Whisper server on quit:", err);
+    }
 
     const sessionStats = sessionManager.getMemoryUsage();
     logger.info("Application shutting down", {

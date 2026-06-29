@@ -1,0 +1,50 @@
+You are extracting structured facts from a segment of a meeting transcript.
+CURRENT STRUCTURED FACTS (do not repeat these — only extract NEW information not already listed):
+
+{{EXISTING_FACTS}}
+NEW TRANSCRIPT SEGMENT:
+
+{{TRANSCRIPT_CHUNK}}
+Extract ONLY new information not already captured above. Focus on:
+
+Decisions made (who decided what)
+Action items assigned (who will do what, by when if stated)
+Constraints or requirements stated (technical limits, deadlines, budgets, rules)
+Key facts that are important for understanding this meeting (named entities, numbers, specifications, blockers)
+
+Do NOT extract:
+
+Small talk or pleasantries
+Repeated or restated information already in the existing facts above
+Vague statements with no concrete content
+Filler phrases
+
+Respond ONLY with valid JSON in this exact format. If nothing new was found, return empty arrays:
+
+{
+
+"decisions": [
+
+{ "text": "exact decision stated", "timestamp": "approximate or null", "owner": "person name or null" }
+
+],
+
+"action_items": [
+
+{ "text": "exact task description", "due": "deadline if stated or null", "owner": "person name or null" }
+
+],
+
+"constraints": [
+
+{ "text": "exact constraint or requirement", "raised_by": "person name or null" }
+
+],
+
+"key_facts": [
+
+{ "text": "important fact", "timestamp": "approximate or null" }
+
+]
+
+}
