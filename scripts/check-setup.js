@@ -196,11 +196,41 @@ function checkProjectFiles() {
   console.log();
 }
 
+// Check external models and binaries
+function checkExternalAssets() {
+  console.log(colors.bold + '🎙️ Whisper and OCR Assets (Local models & binaries)' + colors.reset);
+  const projectRoot = path.join(__dirname, '..');
+  
+  const assets = [
+    { path: 'eng.traineddata', type: 'file', desc: 'OCR language data' },
+    { path: 'models/ggml-base.en.bin', type: 'file', desc: 'Whisper GGML model' },
+    { path: 'bin/Release/whisper-cli.exe', type: 'file', desc: 'Whisper CLI executable', winOnly: true },
+    { path: 'bin/Release/whisper-server.exe', type: 'file', desc: 'Whisper Server sidecar', winOnly: true }
+  ];
+  
+  for (const asset of assets) {
+    if (asset.winOnly && process.platform !== 'win32') {
+      continue; // Skip Windows executables checks on macOS/Linux
+    }
+    
+    const assetPath = path.join(projectRoot, asset.path);
+    if (fs.existsSync(assetPath)) {
+      console.log(`  ${CHECK} ${asset.path} (${asset.desc})`);
+    } else {
+      console.log(`  ${CROSS} ${asset.path} - ${asset.desc} is missing!`);
+      console.log(`      ${colors.blue}ℹ${colors.reset} Run 'npm run setup:binaries' to automatically download and configure this.`);
+      errors++;
+    }
+  }
+  console.log();
+}
+
 // Run all checks
 checkNodeVersion();
 checkNpmModules();
 checkEnvConfig();
 checkExternalTools();
+checkExternalAssets();
 checkProjectFiles();
 
 // Summary

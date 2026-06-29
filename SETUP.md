@@ -14,47 +14,44 @@ This guide will get you up and running with Vysper in **under 5 minutes**.
 
 ---
 
-## ⚡ Quick Start (3 Steps)
+## ⚡ Quick Start (3 Simple Steps)
 
-### Step 1: Install Dependencies
+### Step 1: Clone and Run Automated Setup
+
+This command installs dependencies, creates your `.env` configuration file, and automatically downloads the necessary native Whisper.cpp binaries, Whisper model (`ggml-base.en.bin`), and OCR language data:
 
 ```bash
-# Clone the repository (if you haven't)
+# Clone the repository
 git clone <repository-url>
 cd Vysper
 
-# Install all packages
-npm install
+# Run the automated setup script
+npm run setup
 ```
 
-### Step 2: Configure API Keys
+### Step 2: Configure Your API Key
 
-```bash
-# Copy the example environment file
-# Windows (Command Prompt):
-copy env.example .env
-
-# Windows (PowerShell):
-Copy-Item env.example .env
-
-# Mac/Linux:
-cp env.example .env
-```
-
-Now edit `.env` and add your API key:
+Open the newly created `.env` file in the root of the project with any text editor and paste your Google Gemini API key:
 
 ```env
-GEMINI_API_KEY=your_actual_api_key_here
+GEMINI_API_KEY=your_actual_gemini_api_key_here
 ```
 
-**Get your free Gemini API key:** https://aistudio.google.com/app/apikey
+> [!TIP]
+> **Get a free Gemini API key:** Sign in with your Google account at [Google AI Studio](https://aistudio.google.com/app/apikey) and click **"Create API Key"**.
 
 ### Step 3: Run Vysper
 
-```bash
-nom run build
+To launch the application:
 
+```bash
 npm start
+```
+
+For development mode (with DevTools and additional logs):
+
+```bash
+npm run dev
 ```
 
 That's it! 🎉
@@ -76,21 +73,18 @@ That's it! 🎉
 ### Windows
 
 ```powershell
-# 1. Install Node.js from https://nodejs.org/
+# 1. Install Node.js (version 18+) from https://nodejs.org/
 
-# 2. Open PowerShell/Command Prompt and navigate to project
+# 2. Open PowerShell or Command Prompt and navigate to the project folder
 cd path\to\Vysper
 
-# 3. Install dependencies
-npm install
+# 3. Run the automated project setup (installs npm modules and downloads native assets)
+npm run setup
 
-# 4. Create .env file
-Copy-Item env.example .env
-
-# 5. Edit .env with your favorite editor (notepad, VS Code, etc.)
+# 4. Open and edit the .env file with your API key
 notepad .env
 
-# 6. Run
+# 5. Run the application
 npm start
 ```
 

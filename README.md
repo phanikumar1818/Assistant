@@ -19,12 +19,11 @@ https://github.com/user-attachments/assets/c5616482-3652-4686-b87b-e04d06572d2f
 ## ⚡ Super Quick Start (3 Commands!)
 
 ```bash
-# 1. Install packages
-npm install
+# 1. Run automated setup (downloads dependencies, native whisper binaries/models, and OCR data)
+npm run setup
 
-# 2. Copy and edit config (add your Gemini API key)
-# Windows: copy env.example .env
-# Mac/Linux: cp env.example .env
+# 2. Add your Gemini API key in the newly created .env file
+# (Open .env and edit: GEMINI_API_KEY=your_key)
 
 # 3. Run!
 npm start
@@ -32,7 +31,7 @@ npm start
 
 **Get your free Gemini API key:** https://aistudio.google.com/app/apikey
 
-📖 **[Full Setup Guide →](SETUP.md)** | 🔍 **Run `npm run setup:check` to verify your setup**
+📖 **[Full Setup Guide →](SETUP.md)** | 🔍 **Verify setup by running `npm run setup:check`**
 
 ---
 
@@ -62,7 +61,7 @@ npm start
 ```bash
 git clone <repository-url>
 cd Vysper
-npm install
+npm run setup
 npm start
 ```
 
