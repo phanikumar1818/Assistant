@@ -366,14 +366,38 @@
                             <div class="settings-item-label">Azure Speech Key</div>
                             <div class="settings-item-description">Your Azure Cognitive Services API key</div>
                         </div>
-                        <input type="password" class="input-field" id="azureKey" placeholder="Enter your Azure key">
+                        <div style="display: flex; gap: 8px; width: 100%; max-width: 300px;">
+                            <input type="password" class="input-field" id="azureKey" placeholder="Enter your Azure key" style="flex: 1;">
+                            <button id="btn-save-azure" class="btn" style="padding: 6px 10px;" title="Save Azure Key">
+                                <i class="fas fa-check"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="settings-item">
                         <div>
                             <div class="settings-item-label">Azure Region</div>
                             <div class="settings-item-description">Your Azure service region</div>
                         </div>
-                        <input type="text" class="input-field" id="azureRegion" placeholder="e.g. eastus">
+                        <div style="display: flex; gap: 8px; width: 100%; max-width: 300px;">
+                            <input type="text" class="input-field" id="azureRegion" placeholder="e.g. eastus" style="flex: 1;">
+                            <button id="btn-save-region" class="btn" style="padding: 6px 10px;" title="Save Region">
+                                <i class="fas fa-check"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Capture Microphone</div>
+                            <div class="settings-item-description">Include microphone input in session audio</div>
+                        </div>
+                        <input type="checkbox" id="includeMicrophone" style="width: 18px; height: 18px; cursor: pointer;">
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Capture Computer Audio</div>
+                            <div class="settings-item-description">Include system/computer loopback audio in session audio</div>
+                        </div>
+                        <input type="checkbox" id="includeSystemAudio" style="width: 18px; height: 18px; cursor: pointer;">
                     </div>
                 </div>
             </div>
@@ -389,7 +413,12 @@
                             <div class="settings-item-label">Google API Key</div>
                             <div class="settings-item-description">Your Google API key for Gemini models</div>
                         </div>
-                        <input type="password" class="input-field" id="geminiKey" placeholder="Enter your Google API key">
+                        <div style="display: flex; gap: 8px; width: 100%; max-width: 300px;">
+                            <input type="password" class="input-field" id="geminiKey" placeholder="Enter your Google API key" style="flex: 1;">
+                            <button id="btn-save-gemini" class="btn" style="padding: 6px 10px;" title="Save Gemini Key">
+                                <i class="fas fa-check"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -397,15 +426,63 @@
             <div class="settings-section">
                 <div class="settings-section-title">
                     <i class="fas fa-window-maximize"></i>
-                    Window Settings
+                    Window & Style Settings
                 </div>
                 <div class="settings-section-content">
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Display Screen</div>
+                            <div class="settings-item-description">Choose which screen to show the overlay on</div>
+                        </div>
+                        <select class="input-field" id="displaySelection">
+                            <option value="opened">Stick to Screen Opened On</option>
+                            <option value="cursor">Follow Mouse Cursor</option>
+                        </select>
+                    </div>
                     <div class="settings-item">
                         <div>
                             <div class="settings-item-label">Window Gap</div>
                             <div class="settings-item-description">Gap between bound windows (in pixels)</div>
                         </div>
                         <input type="number" class="input-field" id="windowGap" placeholder="20" min="0" max="100">
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Font Size</div>
+                            <div class="settings-item-description">Adjust the font size of the application text</div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <button id="btn-font-dec" class="btn" style="padding: 4px 10px; font-weight: bold;">-</button>
+                            <span id="font-size-val" style="color: white; font-size: 12px; min-width: 40px; text-align: center;">13px</span>
+                            <button id="btn-font-inc" class="btn" style="padding: 4px 10px; font-weight: bold;">+</button>
+                            <button id="btn-font-reset" class="btn" style="padding: 4px 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); font-size: 10px;">Reset</button>
+                        </div>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Background Opacity</div>
+                            <div class="settings-item-description">Adjust the window background transparency</div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <button id="btn-opacity-dec" class="btn" style="padding: 4px 10px; font-weight: bold;">-</button>
+                            <span id="opacity-val" style="color: white; font-size: 12px; min-width: 40px; text-align: center;">85%</span>
+                            <button id="btn-opacity-inc" class="btn" style="padding: 4px 10px; font-weight: bold;">+</button>
+                            <button id="btn-opacity-reset" class="btn" style="padding: 4px 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); font-size: 10px;">Reset</button>
+                        </div>
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <i class="fas fa-trash-alt"></i>
+                    Session Data
+                </div>
+                <div class="settings-section-content">
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Clear Chat History</div>
+                            <div class="settings-item-description">Clears current active session chat memory and UI history</div>
+                        </div>
+                        <button id="btnClearChatHistory" class="btn" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.25); color: #f87171; padding: 6px 12px; cursor: pointer;">
+                            Clear History
+                        </button>
                     </div>
                 </div>
             </div>

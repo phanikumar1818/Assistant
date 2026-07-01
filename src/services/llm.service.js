@@ -49,7 +49,7 @@ class LLMService {
     }
   }
 
-  async processTextWithSkill(text, activeSkill, sessionMemory = [], programmingLanguage = null) {
+  async processTextWithSkill(text, activeSkill, sessionMemory = [], programmingLanguage = null, onChunk = null) {
     if (!this.isInitialized) {
       throw new Error('LLM service not initialized. Check Gemini API key configuration.');
     }
@@ -71,15 +71,26 @@ class LLMService {
       // Use Electron net module directly (SDK's fetch fails in Electron)
       // This is much faster than waiting for SDK retries to fail
       let response;
-      try {
-        response = await this.executeAlternativeRequest(geminiRequest);
-      } catch (altError) {
-        // If alternative method fails, try SDK as fallback
-        logger.warn('Alternative method failed, trying SDK', {
-          error: altError.message,
-          requestId: this.requestCount
-        });
-        response = await this.executeRequest(geminiRequest);
+      if (onChunk) {
+        try {
+          response = await this.executeAlternativeStreamRequest(geminiRequest, onChunk);
+        } catch (altError) {
+          logger.warn('Alternative streaming method failed, trying SDK stream', {
+            error: altError.message,
+            requestId: this.requestCount
+          });
+          response = await this.executeStreamRequest(geminiRequest, onChunk);
+        }
+      } else {
+        try {
+          response = await this.executeAlternativeRequest(geminiRequest);
+        } catch (altError) {
+          logger.warn('Alternative method failed, trying SDK', {
+            error: altError.message,
+            requestId: this.requestCount
+          });
+          response = await this.executeRequest(geminiRequest);
+        }
       }
 
       logger.logPerformance('LLM text processing', startTime, {
@@ -110,14 +121,14 @@ class LLMService {
       });
 
       if (config.get('llm.gemini.fallbackEnabled')) {
-        return this.generateFallbackResponse(text, activeSkill);
+        return this.generateFallbackResponse(text, activeSkill, onChunk);
       }
 
       throw error;
     }
   }
 
-  async processTranscriptionWithIntelligentResponse(text, activeSkill, sessionMemory = [], programmingLanguage = null) {
+  async processTranscriptionWithIntelligentResponse(text, activeSkill, sessionMemory = [], programmingLanguage = null, onChunk = null) {
     if (!this.isInitialized) {
       throw new Error('LLM service not initialized. Check Gemini API key configuration.');
     }
@@ -139,15 +150,26 @@ class LLMService {
       // Use Electron net module directly (SDK's fetch fails in Electron)
       // This is much faster than waiting for SDK retries to fail
       let response;
-      try {
-        response = await this.executeAlternativeRequest(geminiRequest);
-      } catch (altError) {
-        // If alternative method fails, try SDK as fallback
-        logger.warn('Alternative method failed, trying SDK', {
-          error: altError.message,
-          requestId: this.requestCount
-        });
-        response = await this.executeRequest(geminiRequest);
+      if (onChunk) {
+        try {
+          response = await this.executeAlternativeStreamRequest(geminiRequest, onChunk);
+        } catch (altError) {
+          logger.warn('Alternative streaming method failed, trying SDK stream', {
+            error: altError.message,
+            requestId: this.requestCount
+          });
+          response = await this.executeStreamRequest(geminiRequest, onChunk);
+        }
+      } else {
+        try {
+          response = await this.executeAlternativeRequest(geminiRequest);
+        } catch (altError) {
+          logger.warn('Alternative method failed, trying SDK', {
+            error: altError.message,
+            requestId: this.requestCount
+          });
+          response = await this.executeRequest(geminiRequest);
+        }
       }
 
       logger.logPerformance('LLM transcription processing', startTime, {
@@ -183,7 +205,7 @@ class LLMService {
       });
 
       if (config.get('llm.gemini.fallbackEnabled')) {
-        return this.generateIntelligentFallbackResponse(text, activeSkill, errorAnalysis);
+        return this.generateIntelligentFallbackResponse(text, activeSkill, errorAnalysis, onChunk);
       }
 
       throw error;
@@ -198,7 +220,7 @@ class LLMService {
    * @param {Array} sessionMemory - Session memory for context
    * @param {string|null} programmingLanguage - Optional programming language
    */
-  async processScreenshotWithPrompt(imageData, userPrompt, activeSkill, sessionMemory = [], programmingLanguage = null) {
+  async processScreenshotWithPrompt(imageData, userPrompt, activeSkill, sessionMemory = [], programmingLanguage = null, onChunk = null) {
     if (!this.isInitialized) {
       throw new Error('LLM service not initialized. Check Gemini API key configuration.');
     }
@@ -219,14 +241,26 @@ class LLMService {
       const geminiRequest = this.buildVisionRequest(imageData, userPrompt, activeSkill, sessionMemory, programmingLanguage);
 
       let response;
-      try {
-        response = await this.executeAlternativeRequest(geminiRequest);
-      } catch (altError) {
-        logger.warn('Alternative method failed for vision request, trying SDK', {
-          error: altError.message,
-          requestId: this.requestCount
-        });
-        response = await this.executeRequest(geminiRequest);
+      if (onChunk) {
+        try {
+          response = await this.executeAlternativeStreamRequest(geminiRequest, onChunk);
+        } catch (altError) {
+          logger.warn('Alternative streaming method failed for vision request, trying SDK stream', {
+            error: altError.message,
+            requestId: this.requestCount
+          });
+          response = await this.executeStreamRequest(geminiRequest, onChunk);
+        }
+      } else {
+        try {
+          response = await this.executeAlternativeRequest(geminiRequest);
+        } catch (altError) {
+          logger.warn('Alternative method failed for vision request, trying SDK', {
+            error: altError.message,
+            requestId: this.requestCount
+          });
+          response = await this.executeRequest(geminiRequest);
+        }
       }
 
       logger.logPerformance('LLM vision processing', startTime, {
@@ -262,7 +296,7 @@ class LLMService {
       });
 
       if (config.get('llm.gemini.fallbackEnabled')) {
-        return this.generateVisionFallbackResponse(userPrompt, activeSkill, errorAnalysis);
+        return this.generateVisionFallbackResponse(userPrompt, activeSkill, errorAnalysis, onChunk);
       }
 
       throw error;
@@ -277,7 +311,7 @@ class LLMService {
       contents: [],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 4096, // Larger output for vision responses
+        maxOutputTokens: 1024, // Capped at 1024 for lower latency
         topK: 40,
         topP: 0.95
       }
@@ -378,15 +412,17 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
   /**
    * Generate fallback response for vision requests
    */
-  generateVisionFallbackResponse(userPrompt, activeSkill, errorAnalysis = null) {
+  generateVisionFallbackResponse(userPrompt, activeSkill, errorAnalysis = null, onChunk = null) {
     logger.info('Generating fallback response for vision request', {
       activeSkill,
       errorType: errorAnalysis?.type
     });
 
     if (errorAnalysis && errorAnalysis.isQuotaError) {
+      const quotaResponse = `⚠️ API QUOTA EXCEEDED\n\nYour Gemini API key has hit its usage limit.\n\nTo fix this:\n1. Go to https://aistudio.google.com/app/apikey\n2. Create a NEW Google Cloud project\n3. Generate a new API key from that project\n4. Update GEMINI_API_KEY in your .env file\n5. Restart the app`;
+      if (onChunk) onChunk(quotaResponse);
       return {
-        response: `⚠️ API QUOTA EXCEEDED\n\nYour Gemini API key has hit its usage limit.\n\nTo fix this:\n1. Go to https://aistudio.google.com/app/apikey\n2. Create a NEW Google Cloud project\n3. Generate a new API key from that project\n4. Update GEMINI_API_KEY in your .env file\n5. Restart the app`,
+        response: quotaResponse,
         metadata: {
           skill: activeSkill,
           processingTime: 0,
@@ -398,8 +434,10 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
       };
     }
 
+    const defaultResponse = `I'm having trouble analyzing the screenshot right now. Please try again or check your internet connection and API key configuration.`;
+    if (onChunk) onChunk(defaultResponse);
     return {
-      response: `I'm having trouble analyzing the screenshot right now. Please try again or check your internet connection and API key configuration.`,
+      response: defaultResponse,
       metadata: {
         skill: activeSkill,
         processingTime: 0,
@@ -432,7 +470,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
       contents: [],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 1024,
         topK: 40,
         topP: 0.95
       }
@@ -465,7 +503,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
       contents: [],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 1024,
         topK: 40,
         topP: 0.95
       }
@@ -486,7 +524,8 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
       });
     }
 
-    // Add conversation history (excluding system messages) with validation
+    // Add conversation history (excluding system messages) with validation, capped at last 16 messages (8 turns)
+    const maxMessages = 16;
     const conversationContents = conversationHistory
       .filter(event => {
         return event.role !== 'system' &&
@@ -494,6 +533,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
           typeof event.content === 'string' &&
           event.content.trim().length > 0;
       })
+      .slice(-maxMessages)
       .map(event => {
         const content = event.content.trim();
         return {
@@ -550,7 +590,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
       contents: [],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 2048, // Full responses for transcriptions (same as regular processing)
+        maxOutputTokens: 1024, // Full responses for transcriptions (same as regular processing)
         topK: 40,
         topP: 0.95
       }
@@ -586,7 +626,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
       contents: [],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 2048, // Full responses for transcriptions (same as regular processing)
+        maxOutputTokens: 1024, // Full responses for transcriptions (same as regular processing)
         topK: 40,
         topP: 0.95
       }
@@ -605,7 +645,8 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
       parts: [{ text: combinedInstruction }]
     };
 
-    // Add recent conversation history (excluding system messages) with validation
+    // Add recent conversation history (excluding system messages) with validation, capped at last 16 messages (8 turns)
+    const maxMessages = 16;
     const conversationContents = conversationHistory
       .filter(event => {
         // Filter out system messages and ensure content exists and is valid
@@ -614,7 +655,7 @@ IMPORTANT: Be thorough but concise. Provide practical, immediately useful inform
           typeof event.content === 'string' &&
           event.content.trim().length > 0;
       })
-      .slice(-8) // Keep last 8 exchanges for context
+      .slice(-maxMessages) // Keep last 16 messages for context
       .map(event => {
         const content = event.content.trim();
         if (!content) {
@@ -941,7 +982,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     });
   }
 
-  generateFallbackResponse(text, activeSkill) {
+  generateFallbackResponse(text, activeSkill, onChunk = null) {
     logger.info('Generating fallback response', { activeSkill });
 
     const fallbackResponses = {
@@ -952,6 +993,10 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     };
 
     const response = fallbackResponses[activeSkill] || fallbackResponses.default;
+
+    if (onChunk) {
+      onChunk(response);
+    }
 
     return {
       response,
@@ -964,7 +1009,7 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     };
   }
 
-  generateIntelligentFallbackResponse(text, activeSkill, errorAnalysis = null) {
+  generateIntelligentFallbackResponse(text, activeSkill, errorAnalysis = null, onChunk = null) {
     logger.info('Generating intelligent fallback response for transcription', {
       activeSkill,
       errorType: errorAnalysis?.type
@@ -972,8 +1017,10 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
 
     // If it's a quota error, show a specific message
     if (errorAnalysis && errorAnalysis.isQuotaError) {
+      const quotaResponse = `⚠️ API QUOTA EXCEEDED\n\nYour Gemini API key has hit its usage limit.\n\nTo fix this:\n1. Go to https://aistudio.google.com/app/apikey\n2. Create a NEW Google Cloud project\n3. Generate a new API key from that project\n4. Update GEMINI_API_KEY in your .env file\n5. Restart the app\n\nNote: Keys from the same project share quota limits.`;
+      if (onChunk) onChunk(quotaResponse);
       return {
-        response: `⚠️ API QUOTA EXCEEDED\n\nYour Gemini API key has hit its usage limit.\n\nTo fix this:\n1. Go to https://aistudio.google.com/app/apikey\n2. Create a NEW Google Cloud project\n3. Generate a new API key from that project\n4. Update GEMINI_API_KEY in your .env file\n5. Restart the app\n\nNote: Keys from the same project share quota limits.`,
+        response: quotaResponse,
         metadata: {
           skill: activeSkill,
           processingTime: 0,
@@ -1012,6 +1059,8 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     } else {
       response = `Yeah, I'm listening. Ask your question relevant to ${activeSkill}.`;
     }
+
+    if (onChunk) onChunk(response);
 
     return {
       response,
@@ -1289,6 +1338,245 @@ IMPORTANT: When in doubt, provide a helpful answer. Better to over-explain than 
     }
 
     return text.trim();
+  }
+
+  async executeAlternativeStreamRequest(geminiRequest, onChunk) {
+    const apiKey = config.getApiKey('GEMINI');
+    const model = config.get('llm.gemini.model') || 'gemini-2.5-flash';
+
+    logger.info('Using alternative streaming request method with Electron net module', {
+      model,
+      hasSystemInstruction: !!geminiRequest.systemInstruction,
+      contentsCount: geminiRequest.contents?.length || 0
+    });
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
+    const postData = JSON.stringify(geminiRequest);
+
+    try {
+      return await this.executeStreamWithElectronNet(url, postData, onChunk);
+    } catch (electronError) {
+      logger.warn('Electron net streaming failed, trying https streaming fallback', {
+        error: electronError.message
+      });
+      return await this.executeStreamWithHttps(url, postData, onChunk);
+    }
+  }
+
+  async executeStreamWithElectronNet(url, postData, onChunk) {
+    return new Promise((resolve, reject) => {
+      const { net } = require('electron');
+      const request = net.request({
+        method: 'POST',
+        url: url
+      });
+
+      request.setHeader('Content-Type', 'application/json');
+
+      let responseData = '';
+      let buffer = '';
+
+      request.on('response', (response) => {
+        if (response.statusCode !== 200) {
+          let errData = '';
+          response.on('data', (c) => errData += c.toString());
+          response.on('end', () => {
+            reject(new Error(`HTTP ${response.statusCode}: ${errData}`));
+          });
+          return;
+        }
+
+        response.on('data', (chunk) => {
+          const chunkStr = chunk.toString();
+          buffer += chunkStr;
+          
+          let lines = buffer.split('\n');
+          buffer = lines.pop(); // Keep last partial line
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const jsonStr = trimmed.substring(6);
+                const dataObj = JSON.parse(jsonStr);
+                if (dataObj.candidates && dataObj.candidates[0] && dataObj.candidates[0].content) {
+                  const text = dataObj.candidates[0].content.parts[0].text;
+                  if (text) {
+                    responseData += text;
+                    onChunk(text);
+                  }
+                }
+              } catch (err) {
+                // Ignore incomplete parse errors during streaming
+              }
+            }
+          }
+        });
+
+        response.on('end', () => {
+          // Process any remaining buffer
+          if (buffer.trim().startsWith('data: ')) {
+            try {
+              const jsonStr = buffer.trim().substring(6);
+              const dataObj = JSON.parse(jsonStr);
+              if (dataObj.candidates && dataObj.candidates[0] && dataObj.candidates[0].content) {
+                const text = dataObj.candidates[0].content.parts[0].text;
+                if (text) {
+                  responseData += text;
+                  onChunk(text);
+                }
+              }
+            } catch (err) {
+              // Ignore
+            }
+          }
+          resolve(responseData.trim());
+        });
+
+        response.on('error', (error) => {
+          reject(new Error(`Electron net stream response error: ${error.message}`));
+        });
+      });
+
+      request.on('error', (error) => {
+        reject(new Error(`Electron net stream request error: ${error.message}`));
+      });
+
+      request.write(postData);
+      request.end();
+    });
+  }
+
+  async executeStreamWithHttps(url, postData, onChunk) {
+    const https = require('https');
+    const { URL } = require('url');
+    const parsedUrl = new URL(url);
+
+    const options = {
+      hostname: parsedUrl.hostname,
+      port: 443,
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData),
+        'User-Agent': this.getUserAgent()
+      },
+      timeout: config.get('llm.gemini.timeout') || 30000
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(options, (res) => {
+        if (res.statusCode !== 200) {
+          let errData = '';
+          res.on('data', (c) => errData += c.toString());
+          res.on('end', () => {
+            reject(new Error(`HTTP ${res.statusCode}: ${errData}`));
+          });
+          return;
+        }
+
+        let responseData = '';
+        let buffer = '';
+
+        res.on('data', (chunk) => {
+          buffer += chunk.toString();
+          let lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const jsonStr = trimmed.substring(6);
+                const dataObj = JSON.parse(jsonStr);
+                if (dataObj.candidates && dataObj.candidates[0] && dataObj.candidates[0].content) {
+                  const text = dataObj.candidates[0].content.parts[0].text;
+                  if (text) {
+                    responseData += text;
+                    onChunk(text);
+                  }
+                }
+              } catch (err) {
+                // Ignore incomplete parse errors
+              }
+            }
+          }
+        });
+
+        res.on('end', () => {
+          if (buffer.trim().startsWith('data: ')) {
+            try {
+              const jsonStr = buffer.trim().substring(6);
+              const dataObj = JSON.parse(jsonStr);
+              if (dataObj.candidates && dataObj.candidates[0] && dataObj.candidates[0].content) {
+                const text = dataObj.candidates[0].content.parts[0].text;
+                if (text) {
+                  responseData += text;
+                  onChunk(text);
+                }
+              }
+            } catch (err) {
+              // Ignore
+            }
+          }
+          resolve(responseData.trim());
+        });
+      });
+
+      req.on('error', (error) => {
+        reject(new Error(`HTTPS stream request failed: ${error.message}`));
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('HTTPS stream request timeout'));
+      });
+
+      req.write(postData);
+      req.end();
+    });
+  }
+
+  async executeStreamRequest(geminiRequest, onChunk) {
+    const maxRetries = config.get('llm.gemini.maxRetries') || 3;
+    const timeout = config.get('llm.gemini.timeout') || 30000;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.performPreflightCheck();
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Request timeout')), timeout)
+        );
+
+        const requestPromise = (async () => {
+          const result = await this.model.generateContentStream(geminiRequest);
+          let responseText = '';
+          for await (const chunk of result.stream) {
+            const text = chunk.text();
+            if (text) {
+              responseText += text;
+              onChunk(text);
+            }
+          }
+          return responseText;
+        })();
+
+        const responseText = await Promise.race([requestPromise, timeoutPromise]);
+        return responseText.trim();
+      } catch (error) {
+        const errorInfo = this.analyzeError(error);
+        if (attempt === maxRetries) {
+          const finalError = new Error(`Gemini SDK stream failed: ${error.message}`);
+          finalError.errorAnalysis = errorInfo;
+          throw finalError;
+        }
+        const baseDelay = errorInfo.isNetworkError ? 2000 : 1000;
+        const delay = baseDelay * attempt + Math.random() * 1000;
+        await this.delay(delay);
+      }
+    }
   }
 
   async callGeminiRaw(prompt, logLabel) {

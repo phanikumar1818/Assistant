@@ -38,6 +38,7 @@
         border: 1px solid rgba(255, 255, 255, 0.15);
         width: 100%;
         min-width: 400px;
+        box-sizing: border-box;
       }
 
       .command-item {
@@ -185,27 +186,378 @@
           transform: scale(1);
         }
       }
+
+      @keyframes pulse-dot {
+        0% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.5;
+          transform: scale(1.2);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      #session-control-bar {
+        height: 28px;
+        background: linear-gradient(
+          135deg,
+          rgba(0, 0, 0, 0.4) 0%,
+          rgba(20, 20, 20, 0.5) 100%
+        );
+        backdrop-filter: blur(20px);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 0 12px;
+        color: rgba(255, 255, 255, 0.9);
+        font-family: sans-serif;
+        font-size: 11px;
+        font-weight: 600;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        margin-top: 6px;
+        width: 100%;
+        min-width: 400px;
+        box-sizing: border-box;
+      }
+
+      .session-btn {
+        padding: 4px 10px;
+        background: rgba(255, 255, 255, 0.05);
+        color: rgba(255, 255, 255, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        font-size: 10px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+      }
+
+      .session-btn:hover {
+        background: rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.4);
+        color: white;
+      }
+
+      #btn-start-session {
+        background: rgba(34, 197, 94, 0.15);
+        color: #4ade80;
+        border: 1px solid rgba(34, 197, 94, 0.35);
+      }
+
+      #btn-start-session:hover {
+        background: rgba(34, 197, 94, 0.35) !important;
+        border-color: #4ade80 !important;
+        color: white !important;
+      }
+
+      #btn-stop-session {
+        background: rgba(239, 68, 68, 0.15);
+        color: #f87171;
+        border: 1px solid rgba(239, 68, 68, 0.35);
+      }
+
+      #btn-stop-session:hover {
+        background: rgba(239, 68, 68, 0.35) !important;
+        border-color: #f87171 !important;
+        color: white !important;
+      }
     </style>
   </head>
   <body>
-    <div class="command-tab">
-      <div class="command-item">
-        <i class="fas fa-camera"></i>
-        <span>⌘⇧S</span>
+    <div style="padding: 6px 0; display: flex; flex-direction: column; box-sizing: border-box; width: 508px; margin: 0 auto; overflow: hidden;">
+      <div class="command-tab">
+        <div class="command-item">
+          <i class="fas fa-camera"></i>
+          <span>⌘⇧S</span>
+        </div>
+        <div class="command-separator"></div>
+        <div class="command-item" id="micButton" title="Open Chat (Ctrl+Shift+C)">
+          <i class="fas fa-comment-alt"></i>
+          <span>⌃⇧C</span>
+        </div>
+        <div class="command-separator"></div>
+        <div class="command-item" id="skillIndicator">
+          <i class="fas fa-brain"></i>
+          <span>DSA</span>
+          <span class="shortcut-hint" style="color: rgba(255, 255, 255, 0.6); font-size: 11px; margin-left: 6px; font-weight: normal;">⌃↑↓</span>
+        </div>
+        <div class="command-separator"></div>
+        <div class="status-dot non-interactive" id="statusDot"></div>
       </div>
-      <div class="command-separator"></div>
-      <div class="command-item" id="micButton">
-        <i class="fas fa-microphone"></i>
+
+      <!-- SESSION CONTROL BAR -->
+      <div id="session-control-bar">
+        <div id="session-status-dot" style="
+          width: 8px; height: 8px; border-radius: 50%;
+          background: #666;
+          transition: background 0.3s;
+          flex-shrink: 0;
+        "></div>
+
+        <span id="session-status-text" style="
+          font-size: 11px; color: rgba(255, 255, 255, 0.7);
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          max-width: 140px;
+        ">No active session</span>
+
+        <span id="session-duration-display" style="
+          font-size: 11px; color: rgba(255, 255, 255, 0.5); text-align: right;
+        "></span>
+
+        <div class="command-separator" style="height: 12px; margin: 0 4px; flex-shrink: 0;"></div>
+
+        <button id="btn-start-session" class="session-btn">Start Session</button>
+        <button id="btn-stop-session" class="session-btn" style="display: none;">Stop Session</button>
+        <button id="btn-view-history" class="session-btn">History</button>
+        <button id="btn-view-settings" class="session-btn" title="Settings" style="padding: 4px 8px;"><i class="fas fa-cog"></i></button>
       </div>
-      <div class="command-separator"></div>
-      <div class="command-item" id="skillIndicator">
-        <i class="fas fa-brain"></i>
-        <span>DSA</span>
+
+      <!-- HISTORY PANEL -->
+      <div id="history-panel" style="
+        display: none;
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 6px;
+        background: linear-gradient(
+          135deg,
+          rgba(0, 0, 0, 0.4) 0%,
+          rgba(20, 20, 20, 0.5) 100%
+        );
+        backdrop-filter: blur(25px);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        box-shadow: 0 4px 25px rgba(0, 0, 0, 0.2);
+        flex-direction: column;
+        font-family: sans-serif;
+        height: 380px;
+        overflow: hidden;
+      ">
+        <div style="
+          display: flex; align-items: center; gap: 12px;
+          padding: 12px 16px;
+          border-bottom: 1px solid rgba(255,255,255,0.08);
+          background: rgba(0, 0, 0, 0.15);
+        ">
+          <h2 style="color: rgba(255, 255, 255, 0.95); margin: 0; font-size: 14px; font-weight: 600; flex: 1; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">
+            Meeting History
+          </h2>
+          <input id="history-search" type="text" placeholder="Search sessions..."
+            style="
+              padding: 4px 10px; background: rgba(255,255,255,0.06);
+              border: 1px solid rgba(255,255,255,0.15);
+              border-radius: 6px; color: white; font-size: 11px; width: 180px;
+              outline: none; transition: border 0.2s;
+            "
+            oninput="filterHistory(this.value)"
+          />
+          <button onclick="document.getElementById('history-panel').style.display='none'; const api = window.whysperAPI || window.electronAPI; if (window.mainWindowUI && typeof window.mainWindowUI.resizeWindowToContent === 'function') { window.mainWindowUI.resizeWindowToContent(); } else if (api && api.resizeWindow) { api.resizeWindow(520, 75); } if (window.wasChatOpenBeforeHistory) { window.wasChatOpenBeforeHistory = false; if (api && api.showChat) { api.showChat(); } }"
+            style="
+              padding: 6px 14px; background: rgba(255,255,255,0.05);
+              border: 1px solid rgba(255,255,255,0.25);
+              border-radius: 6px; color: #fff; cursor: pointer; font-size: 11px;
+              font-weight: 600; transition: all 0.2s;
+            "
+            class="session-btn"
+          >Close</button>
+        </div>
+
+        <div id="history-list" style="
+          flex: 1; overflow-y: auto; padding: 12px 16px;
+          display: flex; flex-direction: column; gap: 8px;
+        "></div>
       </div>
-      <div class="command-separator"></div>
-      <div class="status-dot non-interactive" id="statusDot"></div>
     </div>
 
     <script src="./src/ui/main-window.js"></script>
+    <script>
+    window.whysperAPI = window.electronAPI;
+    let sessionStartTime = null;
+    let durationInterval = null;
+
+    async function refreshSessionStatus() {
+      if (window.isStoppingSession) return;
+
+      const api = window.whysperAPI || window.electronAPI;
+      if (!api || !api.sessionStatus) return;
+
+      const status = await api.sessionStatus();
+      const dot = document.getElementById('session-status-dot');
+      const text = document.getElementById('session-status-text');
+      const btnStart = document.getElementById('btn-start-session');
+      const btnStop = document.getElementById('btn-stop-session');
+      const durationDisplay = document.getElementById('session-duration-display');
+
+      if (status.isIdle) {
+        dot.style.background = '#666';
+        text.textContent = 'No active session';
+        text.style.color = 'rgba(255, 255, 255, 0.7)';
+        btnStart.style.display = 'block';
+        btnStop.style.display = 'none';
+        durationDisplay.textContent = '';
+        if (durationInterval) { clearInterval(durationInterval); durationInterval = null; }
+      } else {
+        dot.style.background = '#22c55e';
+        text.textContent = status.activeSession.title || 'Session active';
+        text.style.color = '#fff';
+        btnStart.style.display = 'none';
+        btnStop.style.display = 'block';
+        sessionStartTime = new Date(status.activeSession.startTime);
+
+        if (!durationInterval) {
+          durationInterval = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
+            const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const s = (elapsed % 60).toString().padStart(2, '0');
+            durationDisplay.textContent = `${m}:${s}`;
+          }, 1000);
+        }
+      }
+    }
+
+    document.getElementById('btn-start-session').addEventListener('click', async () => {
+      console.log('[UI] Start Session clicked');
+      const api = window.whysperAPI || window.electronAPI;
+      await api.sessionStart();
+      await refreshSessionStatus();
+      if (window.mainWindowUI && typeof window.mainWindowUI.resizeWindowToContent === 'function') {
+        window.mainWindowUI.resizeWindowToContent();
+      }
+    });
+
+    document.getElementById('btn-stop-session').addEventListener('click', async () => {
+      console.log('[UI] Stop Session clicked');
+      window.isStoppingSession = true;
+
+      const btnStop = document.getElementById('btn-stop-session');
+      const statusText = document.getElementById('session-status-text');
+      const statusDot = document.getElementById('session-status-dot');
+      
+      btnStop.disabled = true;
+      btnStop.textContent = 'Stopping...';
+      btnStop.style.background = 'rgba(239, 68, 68, 0.4)';
+      statusText.textContent = 'Saving session data & generating title...';
+      statusText.style.color = '#ffa726';
+      statusDot.style.background = '#ffa726';
+      statusDot.style.animation = 'pulse-dot 1s infinite';
+
+      const api = window.whysperAPI || window.electronAPI;
+      const result = await api.sessionStop();
+      console.log('[UI] Session stopped:', result);
+      
+      window.isStoppingSession = false;
+      btnStop.disabled = false;
+      btnStop.textContent = 'Stop Session';
+      btnStop.style.background = '';
+      statusDot.style.animation = 'none';
+
+      await refreshSessionStatus();
+      if (result && result.title) {
+        document.getElementById('session-status-text').textContent =
+          `Last session: "${result.title}" (${result.duration} min)`;
+        document.getElementById('session-status-text').style.color = 'rgba(255, 255, 255, 0.7)';
+      }
+      if (window.mainWindowUI && typeof window.mainWindowUI.resizeWindowToContent === 'function') {
+        window.mainWindowUI.resizeWindowToContent();
+      }
+    });
+
+    document.getElementById('btn-view-history').addEventListener('click', async () => {
+      const api = window.whysperAPI || window.electronAPI;
+      const historyPanel = document.getElementById('history-panel');
+      
+      if (historyPanel.style.display === 'flex') {
+        historyPanel.style.display = 'none';
+        if (window.mainWindowUI && typeof window.mainWindowUI.resizeWindowToContent === 'function') {
+          window.mainWindowUI.resizeWindowToContent();
+        } else if (api && api.resizeWindow) {
+          api.resizeWindow(520, 75);
+        }
+        
+        if (window.wasChatOpenBeforeHistory) {
+          window.wasChatOpenBeforeHistory = false;
+          setTimeout(() => {
+            if (api && api.showChat) {
+              api.showChat();
+            }
+          }, 200);
+        }
+      } else {
+        if (api && api.isChatOpen) {
+          try {
+            const chatOpen = await api.isChatOpen();
+            if (chatOpen) {
+              await api.hideChat();
+              window.wasChatOpenBeforeHistory = true;
+            }
+          } catch (err) {
+            console.warn('Error checking/hiding chat:', err);
+          }
+        }
+
+        historyPanel.style.display = 'flex';
+        if (window.mainWindowUI && typeof window.mainWindowUI.resizeWindowToContent === 'function') {
+          window.mainWindowUI.resizeWindowToContent();
+        }
+        loadHistory();
+      }
+    });
+
+    document.getElementById('btn-view-settings').addEventListener('click', async () => {
+      const api = window.whysperAPI || window.electronAPI;
+      if (api && api.showSettings) {
+        await api.showSettings();
+      }
+    });
+
+    // Poll status every 5 seconds to catch title updates
+    refreshSessionStatus();
+    setInterval(refreshSessionStatus, 5000);
+
+    // Font size and background opacity styling listeners
+    const applyAppSettings = (settings) => {
+      if (!settings) return;
+      const fontSize = settings.fontSize || 13;
+      document.body.style.fontSize = `${fontSize}px`;
+      
+      const opacity = settings.bgOpacity !== undefined ? settings.bgOpacity : 0.85;
+      const scaledOpacity = opacity * 0.5; // Scale background opacity for toolbars
+      
+      const cmdTab = document.querySelector('.command-tab');
+      if (cmdTab) {
+        cmdTab.style.background = `linear-gradient(135deg, rgba(0, 0, 0, ${scaledOpacity}) 0%, rgba(20, 20, 20, ${scaledOpacity + 0.1}) 100%)`;
+      }
+      
+      const sessionBar = document.getElementById('session-control-bar');
+      if (sessionBar) {
+        sessionBar.style.background = `linear-gradient(135deg, rgba(0, 0, 0, ${scaledOpacity}) 0%, rgba(20, 20, 20, ${scaledOpacity + 0.1}) 100%)`;
+      }
+      
+      const historyPanel = document.getElementById('history-panel');
+      if (historyPanel) {
+        historyPanel.style.background = `linear-gradient(135deg, rgba(0, 0, 0, ${opacity - 0.2}) 0%, rgba(20, 20, 20, ${opacity - 0.1}) 100%)`;
+      }
+    };
+
+    const initialApi = window.whysperAPI || window.electronAPI;
+    if (initialApi) {
+      if (initialApi.getSettings) {
+        initialApi.getSettings().then(applyAppSettings).catch(err => console.error(err));
+      }
+      if (initialApi.onSettingsUpdated) {
+        initialApi.onSettingsUpdated((event, settings) => {
+          applyAppSettings(settings);
+        });
+      }
+    }
+    </script>
+    <script src="src/ui/session-history.js"></script>
   </body>
 </html>

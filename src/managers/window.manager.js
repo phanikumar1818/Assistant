@@ -29,6 +29,8 @@ class WindowManager {
     this.bindWindows = true; // Enable window binding by default
     this.windowGap = 10; // Small gap between windows
     this.boundWindowsPosition = { x: 0, y: 0 }; // Track position of bound windows
+    this.displaySelection = 'opened'; // Stick to screen opened on by default
+    this.openedDisplay = null;
     
     this.windowConfigs = {
       main: {
@@ -541,6 +543,49 @@ class WindowManager {
     const display = this.currentDisplay || screen.getPrimaryDisplay();
     const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.workArea || display.workAreaSize;
     
+    if (type === 'chat') {
+      const mainWindow = this.windows.get('main');
+      if (mainWindow) {
+        const [mainX, mainY] = mainWindow.getPosition();
+        const [mainWidth, mainHeight] = mainWindow.getSize();
+        const [chatWidth] = window.getSize();
+        const chatX = mainX + Math.round((mainWidth - chatWidth) / 2);
+        const chatY = mainY + mainHeight + this.windowGap;
+        window.setPosition(chatX, chatY);
+        return;
+      }
+    }
+    
+    if (type === 'settings') {
+      const chatWindow = this.windows.get('chat');
+      const mainWindow = this.windows.get('main');
+      
+      if (chatWindow && chatWindow.isVisible()) {
+        const [chatX, chatY] = chatWindow.getPosition();
+        const [chatWidth] = chatWindow.getSize();
+        const settingsX = chatX + chatWidth + this.windowGap;
+        const settingsY = chatY;
+        window.setPosition(settingsX, settingsY);
+        return;
+      } else if (mainWindow) {
+        const [mainX, mainY] = mainWindow.getPosition();
+        const [mainWidth, mainHeight] = mainWindow.getSize();
+        if (mainHeight > 150) {
+          const settingsX = mainX + mainWidth + this.windowGap;
+          const settingsY = mainY + 35; // Position settings window adjacent to main window, starting where panels stack
+          window.setPosition(settingsX, settingsY);
+          return;
+        } else {
+          // Fallback: Open right under the main window (similar to history/chat panel)
+          const [settingsWidth] = window.getSize();
+          const settingsX = mainX + Math.round((mainWidth - settingsWidth) / 2);
+          const settingsY = mainY + mainHeight + this.windowGap;
+          window.setPosition(settingsX, settingsY);
+          return;
+        }
+      }
+    }
+    
     if (this.bindWindows && (type === 'main' || type === 'llmResponse')) {
       // Position bound windows together
       this.positionBoundWindows();
@@ -670,6 +715,14 @@ class WindowManager {
   showOnCurrentDesktop(win) {
     if (!win || win.isDestroyed()) return;
     
+    let type = null;
+    this.windows.forEach((v, k) => {
+      if (v === win) type = k;
+    });
+    if (type) {
+      this.positionWindow(win, type);
+    }
+    
     if (process.platform === 'darwin') {
       // More aggressive approach for macOS to prevent space switching
       
@@ -792,6 +845,15 @@ class WindowManager {
         // Simplified restore handling
         logger.debug('Window restored', { type });
       });
+
+      if (type === 'main') {
+        window.on('move', () => {
+          const chatWindow = this.windows.get('chat');
+          if (chatWindow && chatWindow.isVisible()) {
+            this.positionWindow(chatWindow, 'chat');
+          }
+        });
+      }
     });
   }
 
@@ -1172,15 +1234,20 @@ class WindowManager {
 
     const settingsWindow = this.windows.get('settings');
     if (settingsWindow) {
+      if (settingsWindow.isVisible()) {
+        settingsWindow.hide();
+        logger.info('Settings window toggled: hidden');
+        return;
+      }
       this.showOnCurrentDesktop(settingsWindow);
-      this.centerWindow(settingsWindow); // This now positions at top-center
+      this.positionWindow(settingsWindow, 'settings');
       
       // Notify that settings window is shown
       setTimeout(() => {
         settingsWindow.webContents.send('settings-window-shown');
       }, 50);
       
-      logger.info('Settings window displayed at top');
+      logger.info('Settings window displayed adjacent to active panel');
     }
   }
 
@@ -1342,10 +1409,57 @@ class WindowManager {
     logger.info('All windows destroyed');
   }
 
+  setDisplaySelection(selection) {
+    this.displaySelection = selection || 'opened';
+    logger.info('Display selection updated', { selection: this.displaySelection });
+    this.updateCurrentDisplay();
+  }
+
+  updateCurrentDisplay() {
+    try {
+      const { screen } = require('electron');
+      const displays = screen.getAllDisplays();
+      const primaryDisplay = screen.getPrimaryDisplay();
+      
+      if (!this.openedDisplay) {
+        const cursorPoint = screen.getCursorScreenPoint();
+        this.openedDisplay = screen.getDisplayNearestPoint(cursorPoint) || primaryDisplay;
+      }
+      
+      if (this.displaySelection === 'cursor') {
+        const cursorPoint = screen.getCursorScreenPoint();
+        this.currentDisplay = screen.getDisplayNearestPoint(cursorPoint) || primaryDisplay;
+      } else if (this.displaySelection === 'opened') {
+        const exists = displays.some(d => d.id === this.openedDisplay.id);
+        this.currentDisplay = exists ? this.openedDisplay : primaryDisplay;
+      } else {
+        const targetId = Number(this.displaySelection);
+        const targetDisplay = displays.find(d => d.id === targetId);
+        if (targetDisplay) {
+          this.currentDisplay = targetDisplay;
+        } else {
+          this.currentDisplay = primaryDisplay;
+        }
+      }
+      
+      this.moveWindowsToActiveScreen();
+      
+      logger.debug('Current display resolved', {
+        displayId: this.currentDisplay.id,
+        selectionMode: this.displaySelection
+      });
+    } catch (error) {
+      logger.error('Error resolving current display', { error: error.message });
+    }
+  }
+
   setupScreenTracking() {
-    // Initialize with current cursor position to get the active display
+    const { screen } = require('electron');
+    const primaryDisplay = screen.getPrimaryDisplay();
     const cursorPoint = screen.getCursorScreenPoint();
-    this.currentDisplay = screen.getDisplayNearestPoint(cursorPoint);
+    this.openedDisplay = screen.getDisplayNearestPoint(cursorPoint) || primaryDisplay;
+    
+    this.updateCurrentDisplay();
     
     screen.on('display-added', () => {
       logger.debug('Display added');
@@ -1371,20 +1485,24 @@ class WindowManager {
     this.setupDesktopTracking();
 
     logger.info('Screen and desktop tracking initialized', {
-      currentDisplay: this.currentDisplay.id,
+      currentDisplay: this.currentDisplay ? this.currentDisplay.id : 'unknown',
+      displaySelection: this.displaySelection,
       cursorPosition: cursorPoint
     });
   }
 
   handleDisplayChange() {
     setTimeout(() => {
-      this.moveWindowsToActiveScreen();
+      this.updateCurrentDisplay();
     }, 500);
   }
 
   trackActiveScreen() {
     if (this.isScreenBeingShared) return;
+    
+    if (this.displaySelection !== 'cursor') return;
 
+    const { screen } = require('electron');
     const cursorPoint = screen.getCursorScreenPoint();
     const activeDisplay = screen.getDisplayNearestPoint(cursorPoint);
     

@@ -8,6 +8,7 @@ const config = require("./src/core/config");
 app.commandLine.appendSwitch('enable-speech-dispatcher');
 app.commandLine.appendSwitch('enable-experimental-web-platform-features');
 app.commandLine.appendSwitch('enable-features', 'WebSpeechAPI');
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 // Enable hardware acceleration for audio
 app.commandLine.appendSwitch('enable-usermedia-screen-capturing');
 app.commandLine.appendSwitch('allow-http-screen-capture');
@@ -23,17 +24,58 @@ const transcriptStore = require("./src/services/transcript-store");
 const contextBuilder = require("./src/services/context-builder");
 const MeetingMemoryService = require("./src/services/meeting-memory.service");
 const meetingMemoryService = new MeetingMemoryService(llmService);
+const PersistentSessionManager = require("./src/services/persistent-session.manager");
+const persistentSession = new PersistentSessionManager();
+
+meetingMemoryService.onSummaryUpdate = (narrative, facts) => {
+  persistentSession.updateSummary(narrative, facts);
+
+  // Trigger title generation after first real summary (non-blocking)
+  if (persistentSession.activeSession && !persistentSession._titleGenerated) {
+    persistentSession._titleGenerated = true;
+    persistentSession.generateAndSetTitle(llmService).catch(e => {
+      console.log('[SESSION] Title generation failed:', e.message);
+    });
+  }
+};
+
 
 // Managers
 const windowManager = require("./src/managers/window.manager");
 const sessionManager = require("./src/managers/session.manager");
 
+let chunkBuffer = '';
+let flushScheduled = false;
+
+function scheduleFlush() {
+  if (flushScheduled) return;
+  flushScheduled = true;
+  setTimeout(() => {
+    if (chunkBuffer) {
+      windowManager.broadcastToAllWindows('ai-chunk', chunkBuffer);
+      chunkBuffer = '';
+    }
+    flushScheduled = false;
+  }, 16);
+}
+
 class ApplicationController {
   constructor() {
     this.isReady = false;
-    this.activeSkill = "dsa";
+    this.activeSkill = "meeting-assistant";
+    this.codingLanguage = "javascript";
+    this.appIcon = "terminal";
+    this.fontSize = 13;
+    this.bgOpacity = 0.85;
+    this.windowGap = 20;
+    this.displaySelection = "opened";
+    this.includeMicrophone = true;
+    this.includeSystemAudio = true;
     this.pendingScreenshot = null; // Store pending screenshot for AI context
     this.meetingTranscript = { segments: [], lastAnswerAt: 0 };
+    this.currentRequestId = 0;
+
+    this.loadSettings();
 
     // Window configurations for reference
     this.windowConfigs = {
@@ -45,6 +87,36 @@ class ApplicationController {
 
     this.setupStealth();
     this.setupEventHandlers();
+  }
+
+  loadSettings() {
+    const fs = require('fs');
+    const path = require('path');
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    try {
+      if (fs.existsSync(settingsPath)) {
+        const raw = fs.readFileSync(settingsPath, 'utf8');
+        const settings = JSON.parse(raw);
+        if (settings.codingLanguage) this.codingLanguage = settings.codingLanguage;
+        if (settings.activeSkill) this.activeSkill = settings.activeSkill;
+        if (settings.appIcon) this.appIcon = settings.appIcon;
+        if (settings.selectedIcon) this.appIcon = settings.selectedIcon;
+        if (settings.fontSize !== undefined) this.fontSize = settings.fontSize;
+        if (settings.bgOpacity !== undefined) this.bgOpacity = settings.bgOpacity;
+        if (settings.windowGap !== undefined) this.windowGap = settings.windowGap;
+        if (settings.displaySelection !== undefined) this.displaySelection = settings.displaySelection;
+        if (settings.includeMicrophone !== undefined) this.includeMicrophone = settings.includeMicrophone;
+        if (settings.includeSystemAudio !== undefined) this.includeSystemAudio = settings.includeSystemAudio;
+
+        if (settings.windowGap !== undefined) {
+          windowManager.windowGap = parseInt(settings.windowGap, 10) || 20;
+        }
+
+        logger.info("Persisted settings loaded successfully");
+      }
+    } catch (e) {
+      logger.error("Failed to load settings from file", e.message);
+    }
   }
 
   setupStealth() {
@@ -89,11 +161,16 @@ class ApplicationController {
     });
 
     try {
+      // Preload all prompts at startup
+      const { promptLoader } = require('./prompt-loader');
+      await promptLoader.preloadAllPrompts();
+
       this.setupPermissions();
 
       // Small delay to ensure desktop/space detection is accurate
       await new Promise((resolve) => setTimeout(resolve, 200));
 
+      windowManager.setDisplaySelection(this.displaySelection);
       await windowManager.initializeWindows();
       this.setupGlobalShortcuts();
 
@@ -101,6 +178,8 @@ class ApplicationController {
       this.updateAppIcon("terminal");
 
       this.isReady = true;
+
+      await persistentSession.initialize();
 
       logger.info("Application initialized successfully", {
         windowCount: Object.keys(windowManager.getWindowStats().windows).length,
@@ -244,11 +323,11 @@ class ApplicationController {
         });
 
         logger.debug("Received audio chunk for transcription", { samples: float32Array.length });
-        
+
         // Get the last 2 segments of text to use as prompt context
         const allSegments = transcriptStore.getAll();
         const previousText = allSegments.slice(-2).map(s => s.text).join(" ");
-        
+
         const result = await whisperService.transcribe(float32Array, previousText);
 
         BrowserWindow.getAllWindows().forEach((window) => {
@@ -370,6 +449,27 @@ class ApplicationController {
       return windowManager.getWindowStats();
     });
 
+    ipcMain.handle("is-chat-open", () => {
+      const chatWin = windowManager.getWindow("chat");
+      return chatWin ? chatWin.isVisible() : false;
+    });
+
+    ipcMain.handle("hide-chat", () => {
+      const chatWin = windowManager.getWindow("chat");
+      if (chatWin) {
+        chatWin.hide();
+      }
+      return { success: true };
+    });
+
+    ipcMain.handle("show-chat", () => {
+      const chatWin = windowManager.getWindow("chat");
+      if (chatWin) {
+        windowManager.showOnCurrentDesktop(chatWin);
+      }
+      return { success: true };
+    });
+
     ipcMain.handle("switch-to-skills", () => {
       windowManager.switchToWindow("skills");
       return windowManager.getWindowStats();
@@ -384,13 +484,19 @@ class ApplicationController {
       });
 
       if (targetWindow) {
+        const isResizable = targetWindow.isResizable();
+        targetWindow.setResizable(true);
         targetWindow.setSize(width, height);
+        targetWindow.setResizable(isResizable);
         logger.debug("Window resized based on sender", { id: targetWindow.id, width, height });
       } else {
         // Fallback to main window
         const mainWindow = windowManager.getWindow("main");
         if (mainWindow) {
+          const isResizable = mainWindow.isResizable();
+          mainWindow.setResizable(true);
           mainWindow.setSize(width, height);
+          mainWindow.setResizable(isResizable);
           logger.debug("Main window resized (fallback)", { width, height });
         }
       }
@@ -428,6 +534,14 @@ class ApplicationController {
 
     ipcMain.handle("append-transcript", (event, text, timestamp) => {
       meetingMemoryService.appendTranscript(text, timestamp);
+      const estTime = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }).format(new Date());
+      persistentSession.appendTranscriptLine(text, estTime);
       return { success: true };
     });
 
@@ -438,6 +552,62 @@ class ApplicationController {
       windowManager.broadcastToAllWindows("session-cleared");
       return { success: true };
     });
+
+    ipcMain.handle('session:start', async () => {
+      console.log('[IPC] session:start received');
+      const result = await persistentSession.startSession();
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send("session-started");
+      });
+      return result;
+    });
+
+    ipcMain.handle('session:stop', async () => {
+      console.log('[IPC] session:stop received');
+      const result = await persistentSession.stopSession({
+        meetingMemoryService,
+        sessionManager,
+        transcriptBuffer: this.meetingTranscript,
+      });
+      return result;
+    });
+
+    ipcMain.handle('session:status', () => {
+      return persistentSession.getStatus();
+    });
+
+    ipcMain.handle('session:list', async () => {
+      return await persistentSession.listSessions();
+    });
+
+    ipcMain.handle('session:delete', async (event, sessionId) => {
+      console.log(`[IPC] session:delete received for ${sessionId}`);
+      return await persistentSession.deleteSession(sessionId);
+    });
+
+    ipcMain.handle('session:rename', async (event, sessionId, newTitle) => {
+      console.log(`[IPC] session:rename received for ${sessionId} to "${newTitle}"`);
+      return await persistentSession.renameSession(sessionId, newTitle);
+    });
+
+    ipcMain.handle('session:get-content', async (event, sessionId) => {
+      console.log(`[IPC] session:get-content received for ${sessionId}`);
+      return await persistentSession.getSessionContent(sessionId);
+    });
+
+    ipcMain.handle('session:open-file', async (event, sessionId) => {
+      console.log(`[IPC] session:open-file received for ${sessionId}`);
+      const { shell } = require('electron');
+      const sessions = await persistentSession.listSessions();
+      const target = sessions.find(s => s.id === sessionId);
+      if (target && target.filePath) {
+        await shell.openPath(target.filePath);
+        logger.info(`Opened session file: ${target.filePath}`);
+        return { success: true };
+      }
+      return { success: false, error: 'Session file not found' };
+    });
+
 
     ipcMain.handle("force-always-on-top", () => {
       windowManager.forceAlwaysOnTopForAllWindows();
@@ -488,7 +658,7 @@ class ApplicationController {
           const compiledPromptWithMemory = meetingMemory + "\n\n" + compiledPrompt;
 
           const sessionHistory = sessionManager.getOptimizedHistory();
-          
+
           logger.info("Processing compiled prompt with intelligent LLM response", {
             skill: this.activeSkill,
             promptLength: compiledPromptWithMemory.length
@@ -498,32 +668,54 @@ class ApplicationController {
           const skillsRequiringProgrammingLanguage = ['meeting-assistant', 'programming', 'dsa', 'devops', 'system-design', 'data-science'];
           const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
 
+          const requestId = ++this.currentRequestId;
+          chunkBuffer = '';
+          flushScheduled = false;
+          windowManager.broadcastToAllWindows('ai-response-start', { type: 'chat', text: manualText });
+
           const llmResult = await llmService.processTranscriptionWithIntelligentResponse(
             compiledPromptWithMemory,
             this.activeSkill,
             sessionHistory.recent,
-            needsProgrammingLanguage ? this.codingLanguage : null
+            needsProgrammingLanguage ? this.codingLanguage : null,
+            (chunk) => {
+              if (requestId !== this.currentRequestId) return;
+              chunkBuffer += chunk;
+              scheduleFlush();
+            }
           );
 
-          // Add LLM response to session memory
-          sessionManager.addModelResponse(llmResult.response, {
-            skill: this.activeSkill,
-            processingTime: llmResult.metadata.processingTime,
-            usedFallback: llmResult.metadata.usedFallback,
-            isTranscriptionResponse: true
-          });
+          if (requestId === this.currentRequestId) {
+            if (chunkBuffer) {
+              windowManager.broadcastToAllWindows('ai-chunk', chunkBuffer);
+              chunkBuffer = '';
+            }
+            windowManager.broadcastToAllWindows('ai-response-end');
 
-          // Send response to chat windows
-          this.broadcastTranscriptionLLMResponse(llmResult);
+            // Add LLM response to session memory
+            sessionManager.addModelResponse(llmResult.response, {
+              skill: this.activeSkill,
+              processingTime: llmResult.metadata.processingTime,
+              usedFallback: llmResult.metadata.usedFallback,
+              isTranscriptionResponse: true
+            });
+
+            // Send response to chat windows
+            this.broadcastTranscriptionLLMResponse(llmResult);
+          }
 
         } catch (error) {
           logger.error("Failed to process chat message with LLM", {
             error: error.message,
             text: manualText.substring(0, 100)
           });
+          if (this.currentRequestId === this.currentRequestId) {
+            windowManager.broadcastToAllWindows('ai-response-error', error.message);
+            windowManager.broadcastToAllWindows('ai-response-end');
+          }
           this.broadcastLLMError(error.message);
         }
-      }, 500);
+      }, 10); // Reduced delay for immediate execution
 
       return { success: true };
     });
@@ -627,6 +819,15 @@ class ApplicationController {
       return this.getSettings();
     });
 
+    ipcMain.handle("get-displays", () => {
+      const { screen } = require("electron");
+      return screen.getAllDisplays().map((d, index) => ({
+        id: d.id,
+        label: `Display ${index + 1} (${d.bounds.width}x${d.bounds.height})${d.id === screen.getPrimaryDisplay().id ? ' (Primary)' : ''}`,
+        isPrimary: d.id === screen.getPrimaryDisplay().id
+      }));
+    });
+
     ipcMain.handle("save-settings", (event, settings) => {
       return this.saveSettings(settings);
     });
@@ -722,11 +923,11 @@ class ApplicationController {
         const { app } = require("electron");
         windowManager.destroyAllWindows();
         globalShortcut.unregisterAll();
-        
+
         // Terminate local Whisper server
         try {
           whisperService.stopServer();
-        } catch (err) {}
+        } catch (err) { }
 
         app.quit();
         setTimeout(() => process.exit(0), 1000);
@@ -1008,39 +1209,57 @@ class ApplicationController {
       const skillsRequiringProgrammingLanguage = ['meeting-assistant', 'programming', 'dsa', 'devops', 'system-design', 'data-science'];
       const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
 
+      const requestId = ++this.currentRequestId;
+      chunkBuffer = '';
+      flushScheduled = false;
+      windowManager.broadcastToAllWindows('ai-response-start', { type: 'screenshot', text: userPrompt });
+
       // Process with LLM vision
       const llmResult = await llmService.processScreenshotWithPrompt(
         this.pendingScreenshot.imageData,
         userPrompt,
         this.activeSkill,
         sessionHistory.recent,
-        needsProgrammingLanguage ? this.codingLanguage : null
+        needsProgrammingLanguage ? this.codingLanguage : null,
+        (chunk) => {
+          if (requestId !== this.currentRequestId) return;
+          chunkBuffer += chunk;
+          scheduleFlush();
+        }
       );
 
-      logger.info("Screenshot AI processing completed", {
-        responseLength: llmResult.response.length,
-        skill: this.activeSkill,
-        processingTime: llmResult.metadata.processingTime
-      });
+      if (requestId === this.currentRequestId) {
+        if (chunkBuffer) {
+          windowManager.broadcastToAllWindows('ai-chunk', chunkBuffer);
+          chunkBuffer = '';
+        }
+        windowManager.broadcastToAllWindows('ai-response-end');
 
-      // Add LLM response to session memory
-      sessionManager.addModelResponse(llmResult.response, {
-        skill: this.activeSkill,
-        processingTime: llmResult.metadata.processingTime,
-        usedFallback: llmResult.metadata.usedFallback,
-        isVisionResponse: true
-      });
+        logger.info("Screenshot AI processing completed", {
+          responseLength: llmResult.response.length,
+          skill: this.activeSkill,
+          processingTime: llmResult.metadata.processingTime
+        });
 
-      // Clear the pending screenshot after processing
-      this.pendingScreenshot = null;
+        // Add LLM response to session memory
+        sessionManager.addModelResponse(llmResult.response, {
+          skill: this.activeSkill,
+          processingTime: llmResult.metadata.processingTime,
+          usedFallback: llmResult.metadata.usedFallback,
+          isVisionResponse: true
+        });
 
-      // Notify windows that screenshot has been processed
-      windowManager.broadcastToAllWindows("screenshot-processed", {
-        hasPendingScreenshot: false
-      });
+        // Clear the pending screenshot after processing
+        this.pendingScreenshot = null;
 
-      // Send response to chat windows
-      this.broadcastTranscriptionLLMResponse(llmResult);
+        // Notify windows that screenshot has been processed
+        windowManager.broadcastToAllWindows("screenshot-processed", {
+          hasPendingScreenshot: false
+        });
+
+        // Send response to chat windows
+        this.broadcastTranscriptionLLMResponse(llmResult);
+      }
 
       return { success: true, response: llmResult.response };
 
@@ -1049,6 +1268,11 @@ class ApplicationController {
         error: error.message,
         duration: Date.now() - startTime,
       });
+
+      if (this.currentRequestId === this.currentRequestId) {
+        windowManager.broadcastToAllWindows('ai-response-error', error.message);
+        windowManager.broadcastToAllWindows('ai-response-end');
+      }
 
       // Don't clear screenshot on error so user can retry
       return { success: false, error: error.message };
@@ -1082,40 +1306,63 @@ class ApplicationController {
       const skillsRequiringProgrammingLanguage = ['meeting-assistant', 'programming', 'dsa', 'devops', 'system-design', 'data-science'];
       const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
 
+      const requestId = ++this.currentRequestId;
+      chunkBuffer = '';
+      flushScheduled = false;
+      windowManager.broadcastToAllWindows('ai-response-start', { type: 'chat', text: text });
+
       const llmResult = await llmService.processTextWithSkill(
         text,
         this.activeSkill,
         sessionHistory.recent,
-        needsProgrammingLanguage ? this.codingLanguage : null
+        needsProgrammingLanguage ? this.codingLanguage : null,
+        (chunk) => {
+          if (requestId !== this.currentRequestId) return;
+          chunkBuffer += chunk;
+          scheduleFlush();
+        }
       );
 
-      logger.info("LLM processing completed, showing response", {
-        responseLength: llmResult.response.length,
-        skill: this.activeSkill,
-        programmingLanguage: needsProgrammingLanguage ? this.codingLanguage : 'not applicable',
-        processingTime: llmResult.metadata.processingTime,
-        responsePreview: llmResult.response.substring(0, 200) + "...",
-      });
+      if (requestId === this.currentRequestId) {
+        if (chunkBuffer) {
+          windowManager.broadcastToAllWindows('ai-chunk', chunkBuffer);
+          chunkBuffer = '';
+        }
+        windowManager.broadcastToAllWindows('ai-response-end');
 
-      // Add LLM response to session memory
-      sessionManager.addModelResponse(llmResult.response, {
-        skill: this.activeSkill,
-        processingTime: llmResult.metadata.processingTime,
-        usedFallback: llmResult.metadata.usedFallback,
-      });
+        logger.info("LLM processing completed, showing response", {
+          responseLength: llmResult.response.length,
+          skill: this.activeSkill,
+          programmingLanguage: needsProgrammingLanguage ? this.codingLanguage : 'not applicable',
+          processingTime: llmResult.metadata.processingTime,
+          responsePreview: llmResult.response.substring(0, 200) + "...",
+        });
 
-      windowManager.showLLMResponse(llmResult.response, {
-        skill: this.activeSkill,
-        processingTime: llmResult.metadata.processingTime,
-        usedFallback: llmResult.metadata.usedFallback,
-      });
+        // Add LLM response to session memory
+        sessionManager.addModelResponse(llmResult.response, {
+          skill: this.activeSkill,
+          processingTime: llmResult.metadata.processingTime,
+          usedFallback: llmResult.metadata.usedFallback,
+        });
 
-      this.broadcastLLMSuccess(llmResult);
+        windowManager.showLLMResponse(llmResult.response, {
+          skill: this.activeSkill,
+          processingTime: llmResult.metadata.processingTime,
+          usedFallback: llmResult.metadata.usedFallback,
+        });
+
+        this.broadcastLLMSuccess(llmResult);
+      }
     } catch (error) {
       logger.error("LLM processing failed", {
         error: error.message,
         skill: this.activeSkill,
       });
+
+      if (this.currentRequestId === this.currentRequestId) {
+        windowManager.broadcastToAllWindows('ai-response-error', error.message);
+        windowManager.broadcastToAllWindows('ai-response-end');
+      }
 
       windowManager.hideLLMResponse();
       sessionManager.addConversationEvent({
@@ -1169,30 +1416,48 @@ class ApplicationController {
       const skillsRequiringProgrammingLanguage = ['meeting-assistant', 'programming', 'dsa', 'devops', 'system-design', 'data-science'];
       const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
 
+      const requestId = ++this.currentRequestId;
+      chunkBuffer = '';
+      flushScheduled = false;
+      windowManager.broadcastToAllWindows('ai-response-start', { type: 'transcription', text: cleanText });
+
       const llmResult = await llmService.processTranscriptionWithIntelligentResponse(
         cleanTextWithMemory,
         this.activeSkill,
         sessionHistory.recent,
-        needsProgrammingLanguage ? this.codingLanguage : null
+        needsProgrammingLanguage ? this.codingLanguage : null,
+        (chunk) => {
+          if (requestId !== this.currentRequestId) return;
+          chunkBuffer += chunk;
+          scheduleFlush();
+        }
       );
 
-      // Add LLM response to session memory
-      sessionManager.addModelResponse(llmResult.response, {
-        skill: this.activeSkill,
-        processingTime: llmResult.metadata.processingTime,
-        usedFallback: llmResult.metadata.usedFallback,
-        isTranscriptionResponse: true
-      });
+      if (requestId === this.currentRequestId) {
+        if (chunkBuffer) {
+          windowManager.broadcastToAllWindows('ai-chunk', chunkBuffer);
+          chunkBuffer = '';
+        }
+        windowManager.broadcastToAllWindows('ai-response-end');
 
-      // Send response to chat windows
-      this.broadcastTranscriptionLLMResponse(llmResult);
+        // Add LLM response to session memory
+        sessionManager.addModelResponse(llmResult.response, {
+          skill: this.activeSkill,
+          processingTime: llmResult.metadata.processingTime,
+          usedFallback: llmResult.metadata.usedFallback,
+          isTranscriptionResponse: true
+        });
 
-      logger.info("Transcription LLM response completed", {
-        responseLength: llmResult.response.length,
-        skill: this.activeSkill,
-        programmingLanguage: needsProgrammingLanguage ? this.codingLanguage : 'not applicable',
-        processingTime: llmResult.metadata.processingTime
-      });
+        // Send response to chat windows
+        this.broadcastTranscriptionLLMResponse(llmResult);
+
+        logger.info("Transcription LLM response completed", {
+          responseLength: llmResult.response.length,
+          skill: this.activeSkill,
+          programmingLanguage: needsProgrammingLanguage ? this.codingLanguage : 'not applicable',
+          processingTime: llmResult.metadata.processingTime
+        });
+      }
 
     } catch (error) {
       logger.error("Transcription LLM processing failed", {
@@ -1201,6 +1466,11 @@ class ApplicationController {
         skill: this.activeSkill,
         text: text ? text.substring(0, 100) : 'undefined'
       });
+
+      if (this.currentRequestId === this.currentRequestId) {
+        windowManager.broadcastToAllWindows('ai-response-error', error.message);
+        windowManager.broadcastToAllWindows('ai-response-end');
+      }
 
       // Try to provide a fallback response
       try {
@@ -1345,18 +1615,22 @@ class ApplicationController {
       activeSkill: this.activeSkill || "meeting-assistant",
       appIcon: this.appIcon || "terminal",
       selectedIcon: this.appIcon || "terminal",
+      fontSize: this.fontSize !== undefined ? this.fontSize : 13,
+      bgOpacity: this.bgOpacity !== undefined ? this.bgOpacity : 0.85,
+      windowGap: this.windowGap !== undefined ? this.windowGap : 20,
+      displaySelection: this.displaySelection || "opened",
+      includeMicrophone: this.includeMicrophone !== undefined ? this.includeMicrophone : true,
+      includeSystemAudio: this.includeSystemAudio !== undefined ? this.includeSystemAudio : true,
     };
   }
 
   saveSettings(settings) {
     try {
-      // Update application settings
       if (settings.codingLanguage) {
         this.codingLanguage = settings.codingLanguage;
       }
       if (settings.activeSkill) {
         this.activeSkill = settings.activeSkill;
-        // Broadcast skill change to all windows
         windowManager.broadcastToAllWindows("skill-updated", {
           skill: settings.activeSkill,
         });
@@ -1364,13 +1638,32 @@ class ApplicationController {
       if (settings.appIcon) {
         this.appIcon = settings.appIcon;
       }
-
-      // Handle icon change specifically
       if (settings.selectedIcon) {
         this.appIcon = settings.selectedIcon;
-        // Immediately update the app icon
         this.updateAppIcon(settings.selectedIcon);
       }
+      if (settings.fontSize !== undefined) {
+        this.fontSize = settings.fontSize;
+      }
+      if (settings.bgOpacity !== undefined) {
+        this.bgOpacity = settings.bgOpacity;
+      }
+      if (settings.windowGap !== undefined) {
+        this.windowGap = settings.windowGap;
+        windowManager.windowGap = parseInt(settings.windowGap, 10) || 20;
+      }
+      if (settings.displaySelection !== undefined) {
+        this.displaySelection = settings.displaySelection;
+        windowManager.setDisplaySelection(settings.displaySelection);
+      }
+      if (settings.includeMicrophone !== undefined) {
+        this.includeMicrophone = settings.includeMicrophone;
+      }
+      if (settings.includeSystemAudio !== undefined) {
+        this.includeSystemAudio = settings.includeSystemAudio;
+      }
+
+      windowManager.broadcastToAllWindows("settings-updated", this.getSettings());
 
       // Persist settings to file or config
       this.persistSettings(settings);
@@ -1384,9 +1677,37 @@ class ApplicationController {
   }
 
   persistSettings(settings) {
-    // You can extend this to save to a file or database
-    // For now, we'll just keep them in memory
-    logger.debug("Settings persisted", settings);
+    const fs = require('fs');
+    const path = require('path');
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    try {
+      fs.writeFileSync(settingsPath, JSON.stringify(this.getSettings(), null, 2), 'utf8');
+      logger.info('Settings successfully persisted to settings.json');
+    } catch (e) {
+      logger.error('Failed to write settings.json', e.message);
+    }
+
+    if (settings.geminiKey) {
+      try {
+        const envPath = path.join(app.getAppPath(), '.env');
+        if (fs.existsSync(envPath)) {
+          let envContent = fs.readFileSync(envPath, 'utf8');
+          if (envContent.includes('GEMINI_API_KEY=')) {
+            envContent = envContent.replace(/^GEMINI_API_KEY=.*$/m, `GEMINI_API_KEY=${settings.geminiKey}`);
+          } else {
+            envContent += `\nGEMINI_API_KEY=${settings.geminiKey}`;
+          }
+          fs.writeFileSync(envPath, envContent, 'utf8');
+          logger.info('Successfully updated GEMINI_API_KEY in .env file');
+        } else {
+          fs.writeFileSync(envPath, `GEMINI_API_KEY=${settings.geminiKey}\n`, 'utf8');
+          logger.info('Created new .env file with GEMINI_API_KEY');
+        }
+        process.env.GEMINI_API_KEY = settings.geminiKey;
+      } catch (err) {
+        logger.error('Failed to write to .env file', err.message);
+      }
+    }
   }
 
   updateAppIcon(iconKey) {

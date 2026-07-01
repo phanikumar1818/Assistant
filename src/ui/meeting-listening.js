@@ -139,6 +139,7 @@ try {
       this.levelMonitorId = null;
       this.isListening = false;
       this.includeMicrophone = options.includeMicrophone !== false;
+      this.includeSystemAudio = options.includeSystemAudio !== false;
     }
 
     get isActive() {
@@ -201,37 +202,42 @@ try {
     }
 
     async _acquireStreams() {
-      if (!navigator.mediaDevices?.getDisplayMedia) {
-        throw new Error('System audio capture is not supported in this environment.');
+      let systemAudioAcquired = false;
+      
+      if (this.includeSystemAudio !== false) {
+        if (!navigator.mediaDevices?.getDisplayMedia) {
+          throw new Error('System audio capture is not supported in this environment.');
+        }
+
+        try {
+          this.displayStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: 640, max: 1280 },
+              height: { ideal: 360, max: 720 },
+              frameRate: { ideal: 5, max: 15 }
+            },
+            audio: true
+          });
+
+          // CRITICAL: Do NOT stop the video track on Windows — that kills loopback audio.
+          // Disable video instead to keep the capture session alive.
+          this.displayStream.getVideoTracks().forEach((track) => {
+            track.enabled = false;
+          });
+
+          const systemTracks = this.displayStream.getAudioTracks();
+          if (systemTracks.length > 0) {
+            systemTracks.forEach((track) => {
+              track.addEventListener('ended', () => this._handleStreamEnded('system'));
+            });
+            this.systemStream = new MediaStream(systemTracks);
+            systemAudioAcquired = true;
+          }
+        } catch (err) {
+          console.warn('System audio loopback capture declined or failed:', err.message);
+          this.onStatus('System audio declined. Attempting microphone only...');
+        }
       }
-
-      this.displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 640, max: 1280 },
-          height: { ideal: 360, max: 720 },
-          frameRate: { ideal: 5, max: 15 }
-        },
-        audio: true
-      });
-
-      // CRITICAL: Do NOT stop the video track on Windows — that kills loopback audio.
-      // Disable video instead to keep the capture session alive.
-      this.displayStream.getVideoTracks().forEach((track) => {
-        track.enabled = false;
-      });
-
-      const systemTracks = this.displayStream.getAudioTracks();
-      if (!systemTracks.length) {
-        throw new Error(
-          'No system audio received. Share "Entire screen" and check "Also share system audio" in the picker.'
-        );
-      }
-
-      systemTracks.forEach((track) => {
-        track.addEventListener('ended', () => this._handleStreamEnded('system'));
-      });
-
-      this.systemStream = new MediaStream(systemTracks);
 
       if (this.includeMicrophone) {
         try {
@@ -248,12 +254,15 @@ try {
           });
         } catch (micErr) {
           console.warn('Microphone unavailable:', micErr.message);
+          if (!systemAudioAcquired) {
+            throw new Error('Both system audio capture and microphone access failed.');
+          }
           this.onStatus('System audio only — microphone access denied or unavailable.');
         }
       }
 
       // Mix the system stream and microphone stream using Web Audio API
-      if (this.micStream) {
+      if (this.systemStream && this.micStream) {
         try {
           const audioContext = new (window.AudioContext || window.webkitAudioContext)();
           const destination = audioContext.createMediaStreamDestination();
@@ -271,8 +280,12 @@ try {
           console.warn('Failed to mix audio streams, falling back to separate/system stream:', mixErr.message);
           this.mixedStream = this.systemStream;
         }
-      } else {
+      } else if (this.systemStream) {
         this.mixedStream = this.systemStream;
+      } else if (this.micStream) {
+        this.mixedStream = this.micStream;
+      } else {
+        throw new Error('No audio source acquired.');
       }
     }
 

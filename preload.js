@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   disableWindowInteraction: () => ipcRenderer.invoke('disable-window-interaction'),
   switchToChat: () => ipcRenderer.invoke('switch-to-chat'),
   switchToSkills: () => ipcRenderer.invoke('switch-to-skills'),
+  isChatOpen: () => ipcRenderer.invoke('is-chat-open'),
+  hideChat: () => ipcRenderer.invoke('hide-chat'),
+  showChat: () => ipcRenderer.invoke('show-chat'),
   resizeWindow: (width, height) => ipcRenderer.invoke('resize-window', { width, height }),
   moveWindow: (deltaX, deltaY) => ipcRenderer.invoke('move-window', { deltaX, deltaY }),
   getWindowStats: () => ipcRenderer.invoke('get-window-stats'),
@@ -51,6 +54,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showSettings: () => ipcRenderer.invoke('show-settings'),
   hideSettings: () => ipcRenderer.invoke('hide-settings'),
   getSettings: () => ipcRenderer.invoke('get-settings'),
+  getDisplays: () => ipcRenderer.invoke('get-displays'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   updateAppIcon: (iconKey) => ipcRenderer.invoke('update-app-icon', iconKey),
   updateActiveSkill: (skill) => ipcRenderer.invoke('update-active-skill', skill),
@@ -91,6 +95,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onInteractionModeChanged: (callback) => ipcRenderer.on('interaction-mode-changed', callback),
   onRecordingStarted: (callback) => ipcRenderer.on('recording-started', callback),
   onRecordingStopped: (callback) => ipcRenderer.on('recording-stopped', callback),
+  onSessionStarted: (callback) => ipcRenderer.on('session-started', callback),
+  onSessionStopped: (callback) => ipcRenderer.on('session-stopped', callback),
+  onSettingsUpdated: (callback) => ipcRenderer.on('settings-updated', callback),
   
   // Screenshot for AI Vision events
   onScreenshotCaptured: (callback) => ipcRenderer.on('screenshot-captured', callback),
@@ -111,6 +118,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTranscriptSegment: (callback) => ipcRenderer.on('transcript-segment', (event, segment) => callback(segment)),
   onWhisperStatus: (callback) => ipcRenderer.on('whisper-status', (event, status) => callback(status)),
   
+  // New streaming events
+  onResponseStart: (cb) => ipcRenderer.on('ai-response-start', (_e, data) => cb(data)),
+  onChunk:         (cb) => ipcRenderer.on('ai-chunk', (_e, chunk) => cb(chunk)),
+  onResponseEnd:   (cb) => ipcRenderer.on('ai-response-end', () => cb()),
+  onResponseError: (cb) => ipcRenderer.on('ai-response-error', (_e, msg) => cb(msg)),
+
+  // Cleanup — important for preventing listener accumulation
+  removeResponseListeners: () => {
+    ipcRenderer.removeAllListeners('ai-response-start');
+    ipcRenderer.removeAllListeners('ai-chunk');
+    ipcRenderer.removeAllListeners('ai-response-end');
+    ipcRenderer.removeAllListeners('ai-response-error');
+  },
+
   // Generic receive method
   receive: (channel, callback) => ipcRenderer.on(channel, callback),
   
@@ -118,7 +139,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
   
   // Clipboard
-  writeToClipboard: (text) => ipcRenderer.invoke('write-to-clipboard', text)
+  writeToClipboard: (text) => ipcRenderer.invoke('write-to-clipboard', text),
+
+  // Session APIs
+  sessionStart: () => ipcRenderer.invoke('session:start'),
+  sessionStop: () => ipcRenderer.invoke('session:stop'),
+  sessionStatus: () => ipcRenderer.invoke('session:status'),
+  sessionList: () => ipcRenderer.invoke('session:list'),
+  sessionDelete: (id) => ipcRenderer.invoke('session:delete', id),
+  sessionRename: (id, title) => ipcRenderer.invoke('session:rename', id, title),
+  sessionGetContent: (id) => ipcRenderer.invoke('session:get-content', id),
+  sessionOpenFile: (id) => ipcRenderer.invoke('session:open-file', id)
 })
 
 contextBridge.exposeInMainWorld('api', {

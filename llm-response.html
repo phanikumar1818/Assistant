@@ -440,6 +440,8 @@
             gfm: true
         });
 
+        let rawTextAccumulator = '';
+
         // Set up event listeners using electronAPI from preload script
         if (window.electronAPI) {
             // Set up show-loading event listener
@@ -447,7 +449,75 @@
                 showLoadingState();
             });
 
+            if (window.electronAPI.onResponseStart) {
+                window.electronAPI.onResponseStart(() => {
+                    hideLoadingState();
+                    rawTextAccumulator = '';
+                    
+                    // Show full layout for plain text streaming
+                    const splitLayout = document.getElementById('split-layout');
+                    if (splitLayout) splitLayout.classList.add('hidden');
+                    
+                    const fullContent = document.getElementById('full-content');
+                    if (fullContent) fullContent.classList.remove('hidden');
+                    
+                    const responseContent = document.getElementById('response-content');
+                    if (responseContent) responseContent.classList.remove('hidden');
+                    
+                    const fullMarkdown = document.getElementById('full-markdown');
+                    if (fullMarkdown) {
+                        fullMarkdown.innerHTML = '';
+                    }
+                });
+            }
+
+            if (window.electronAPI.onChunk) {
+                window.electronAPI.onChunk((chunk) => {
+                    rawTextAccumulator += chunk;
+                    const fullMarkdown = document.getElementById('full-markdown');
+                    if (fullMarkdown) {
+                        fullMarkdown.innerHTML = marked.parse(rawTextAccumulator);
+                    }
+                    
+                    // Do not scroll to bottom, let user read from the top
+                });
+            }
+
+            if (window.electronAPI.onResponseEnd) {
+                window.electronAPI.onResponseEnd(() => {
+                    if (rawTextAccumulator) {
+                        displayResponse({ response: rawTextAccumulator });
+                        setupScrolling();
+                        setTimeout(verifyDisplayState, 300);
+                    }
+                    rawTextAccumulator = '';
+                });
+            }
+
+            if (window.electronAPI.onResponseError) {
+                window.electronAPI.onResponseError((errMsg) => {
+                    hideLoadingState();
+                    const splitLayout = document.getElementById('split-layout');
+                    if (splitLayout) splitLayout.classList.add('hidden');
+                    
+                    const fullContent = document.getElementById('full-content');
+                    if (fullContent) fullContent.classList.remove('hidden');
+                    
+                    const responseContent = document.getElementById('response-content');
+                    if (responseContent) responseContent.classList.remove('hidden');
+                    
+                    const fullMarkdown = document.getElementById('full-markdown');
+                    if (fullMarkdown) {
+                        fullMarkdown.textContent = `Error: ${errMsg}`;
+                    }
+                    rawTextAccumulator = '';
+                });
+            }
+
             window.electronAPI.onDisplayLlmResponse((event, data) => {
+                if (window.electronAPI.onChunk) {
+                    return; // Ignore static response if streaming is supported
+                }
                 const response = data.content || data.response;
 
                 // Check if window is still small (compact size) and request expansion

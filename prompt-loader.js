@@ -41,6 +41,40 @@ class PromptLoader {
   }
 
   /**
+   * Preload all skill prompts asynchronously at startup
+   */
+  async preloadAllPrompts(promptsDir) {
+    if (this.promptsLoaded) {
+      return;
+    }
+
+    const resolvedDir = promptsDir || path.join(__dirname, 'prompts');
+
+    try {
+      const files = await fs.promises.readdir(resolvedDir);
+      await Promise.all(
+        files
+          .filter(f => f.endsWith('.md') || f.endsWith('.txt') || f.endsWith('.prompt'))
+          .map(async (file) => {
+            const ext = path.extname(file);
+            const skillName = path.basename(file, ext).toLowerCase();
+            const filePath = path.join(resolvedDir, file);
+            const promptContent = await fs.promises.readFile(filePath, 'utf8');
+
+            this.prompts.set(skillName, promptContent);
+          })
+      );
+
+      this.promptsLoaded = true;
+      console.log(`[prompts] Pre-loaded ${this.prompts.size} skills:`, [...this.prompts.keys()]);
+    } catch (error) {
+      console.error('Error preloading skill prompts:', error);
+      // Fallback to sync load
+      this.loadPrompts();
+    }
+  }
+
+  /**
    * Get the system prompt for a specific skill with optional programming language injection
    * @param {string} skillName - The name of the skill
    * @param {string|null} programmingLanguage - Optional programming language to inject

@@ -589,6 +589,11 @@ class SessionManager {
     this.initializeWithSkillPrompts();
   }
 
+  clearHistory() {
+    this.clear();
+  }
+
+
   getMemoryUsage() {
     const totalSize = JSON.stringify(this.sessionMemory).length;
     

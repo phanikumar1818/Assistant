@@ -175,6 +175,10 @@ class MeetingMemoryService {
 
       this.layer2 = rawResponse.trim();
       this.log(`[MEMORY] Narrative updated. New length: ${this.layer2.length} chars`);
+      
+      if (this.onSummaryUpdate) {
+        this.onSummaryUpdate(this.layer2, this.layer1);
+      }
     } catch (err) {
       this.log(`[LLM ERROR - NARRATIVE UPDATE] ${err.message}`, 'error');
       throw err;
@@ -253,6 +257,17 @@ ${this.layer3}
         "total_key_facts": this.layer1.key_facts.length
       }
     };
+  }
+
+  async finalizeRemaining() {
+    this.log(`[MEMORY] Finalizing remaining transcript in buffer.`);
+    while (this.isUpdating) {
+      this.log(`[MEMORY] Waiting for existing update cycle to finish...`);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    if (this.unprocessedBuffer && this.unprocessedBuffer.trim()) {
+      await this.triggerUpdateCycle();
+    }
   }
 
   clear() {

@@ -37,3 +37,6 @@ npm-debug.log*
 # Temporary files
 *.tmp
 *.temp
+
+# Session history data
+sessions/

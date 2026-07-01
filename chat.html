@@ -8,6 +8,20 @@
   <style>
     @import url("https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css");
 
+    :root {
+      --app-font-size: 13px;
+    }
+
+    .chat-messages,
+    .message,
+    .message *,
+    .transcript-text,
+    .transcript-segment,
+    #messageInput,
+    .log-entry {
+      font-size: var(--app-font-size, 13px) !important;
+    }
+
     body {
       background: transparent !important;
       margin: 0;
@@ -492,9 +506,12 @@
 
     /* Pulse animation for the active mic button */
     @keyframes micButtonPulse {
-      0%, 100% {
+
+      0%,
+      100% {
         box-shadow: 0 0 10px rgba(255, 71, 87, 0.4);
       }
+
       50% {
         box-shadow: 0 0 20px rgba(255, 71, 87, 0.7);
       }
@@ -509,10 +526,13 @@
     }
 
     @keyframes micPulse {
-      0%, 100% {
+
+      0%,
+      100% {
         transform: scale(1);
         opacity: 1;
       }
+
       50% {
         transform: scale(1.15);
         opacity: 0.8;
@@ -806,11 +826,13 @@
     }
 
     @keyframes screenshotPulse {
+
       0%,
       100% {
         opacity: 1;
         box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.5);
       }
+
       50% {
         opacity: 0.8;
         box-shadow: 0 0 0 6px rgba(168, 85, 247, 0);
@@ -842,11 +864,18 @@
       border-left: 1px solid rgba(255, 255, 255, 0.08);
       overflow: hidden;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      -webkit-app-region: no-drag;
     }
 
     .transcript-pane.collapsed {
       width: 0;
       border-left: none;
+    }
+
+    .pane-resizer:hover,
+    .pane-resizer.resizing {
+      background: rgba(76, 175, 80, 0.4) !important;
+      width: 6px !important;
     }
 
     .pane-header {
@@ -893,6 +922,7 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
+      -webkit-app-region: no-drag;
     }
 
     /* Transcript Segment Styles */
@@ -1064,6 +1094,25 @@
         Live Transcription & Chat
         <div class="recording-indicator" id="recordingIndicator"></div>
         <div class="screenshot-indicator" id="screenshotIndicator"></div>
+        <div id="session-status-badge" style="
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          margin-left: 12px;
+          padding: 3px 8px;
+          border-radius: 12px;
+          background: rgba(255,255,255,0.08);
+          font-size: 11px;
+          color: #aaa;
+          font-weight: normal;
+        ">
+          <span id="session-badge-dot" style="
+            width: 6px; height: 6px; border-radius: 50%;
+            background: #666;
+            transition: background 0.3s;
+          "></span>
+          <span id="session-badge-text">Idle</span>
+        </div>
       </div>
       <div class="header-actions">
         <button class="header-btn" id="toggleTranscriptBtn" title="Toggle Transcript Pane">
@@ -1116,7 +1165,8 @@
 
         <div class="chat-input">
           <div class="input-container">
-            <input type="text" class="input-field" placeholder="Optional: add or edit your question, then press Enter" id="messageInput" />
+            <input type="text" class="input-field" placeholder="Optional: add or edit your question, then press Enter"
+              id="messageInput" />
             <button class="mic-button" id="micButton">
               <i class="fas fa-microphone"></i>
             </button>
@@ -1127,11 +1177,23 @@
         </div>
       </div>
 
+      <div class="pane-resizer" id="paneResizer" style="
+        width: 4px;
+        background: rgba(255, 255, 255, 0.08);
+        cursor: col-resize;
+        -webkit-app-region: no-drag;
+        flex-shrink: 0;
+        transition: background 0.2s;
+        z-index: 10;
+        display: none;
+      "></div>
+
       <div class="transcript-pane collapsed" id="transcriptPane">
         <div class="pane-header">
           <div class="pane-title" style="display: flex; align-items: center; gap: 8px;">
             <i class="fas fa-file-alt"></i> Transcript Timeline
-            <span id="whisperStatusIndicator" style="font-size: 11px; font-weight: normal; color: #ffa726; display: none; align-items: center; gap: 4px;">
+            <span id="whisperStatusIndicator"
+              style="font-size: 11px; font-weight: normal; color: #ffa726; display: none; align-items: center; gap: 4px;">
               <i class="fas fa-spinner fa-spin"></i> Transcribing...
             </span>
           </div>
@@ -1140,7 +1202,8 @@
           </button>
         </div>
         <div class="transcript-messages" id="transcriptMessages">
-          <div class="status-message" id="emptyTranscriptMsg">No transcription yet. Turn on the microphone to begin capture.</div>
+          <div class="status-message" id="emptyTranscriptMsg">No transcription yet. Turn on the microphone to begin
+            capture.</div>
         </div>
       </div>
     </div>
@@ -1187,10 +1250,10 @@
     const clearSessionBtn = document.getElementById('clearSessionBtn');
     const exportTranscriptBtn = document.getElementById('exportTranscriptBtn');
     const closeActivityBtn = document.getElementById('closeActivityBtn');
-    
+
     const transcriptPane = document.getElementById('transcriptPane');
     const transcriptMessages = document.getElementById('transcriptMessages');
-    
+
     const activityPane = document.getElementById('activityPane');
     const activityLogs = document.getElementById('activityLogs');
 
@@ -1199,6 +1262,8 @@
     let listeningStartTime = null;
     let listeningTimer = null;
     let hasPendingScreenshot = false;
+    let lastUserBubble = null;
+    let hasAddedUserBubble = false;
 
     let audioLevelHint = 'Waiting for audio…';
 
@@ -1207,17 +1272,17 @@
       if (!activityLogs) return;
       const entry = document.createElement('div');
       entry.className = `log-entry ${type}`;
-      
+
       const timeSpan = document.createElement('span');
       timeSpan.className = 'log-time';
       timeSpan.textContent = new Date().toLocaleTimeString();
-      
+
       const textSpan = document.createElement('span');
       textSpan.textContent = text;
-      
+
       entry.appendChild(timeSpan);
       entry.appendChild(textSpan);
-      
+
       activityLogs.appendChild(entry);
       activityLogs.scrollTop = activityLogs.scrollHeight;
     }
@@ -1225,34 +1290,34 @@
     // Render Transcript Timeline
     function renderTranscriptTimeline() {
       if (!transcriptMessages) return;
-      
+
       const segments = meetingListener.transcriptBuffer.segments || [];
-      
+
       if (segments.length === 0) {
         transcriptMessages.innerHTML = '<div class="status-message" id="emptyTranscriptMsg">No transcription yet. Turn on the microphone to begin capture.</div>';
         return;
       }
-      
+
       transcriptMessages.innerHTML = '';
-      
+
       segments.forEach((seg) => {
         const segDiv = document.createElement('div');
         segDiv.className = 'transcript-segment';
-        
+
         const timeSpan = document.createElement('span');
         timeSpan.className = 'transcript-time';
         const date = new Date(seg.timestamp);
         timeSpan.textContent = date.toLocaleTimeString();
-        
+
         const textSpan = document.createElement('span');
         textSpan.className = 'transcript-text';
         textSpan.textContent = seg.text;
-        
+
         segDiv.appendChild(timeSpan);
         segDiv.appendChild(textSpan);
         transcriptMessages.appendChild(segDiv);
       });
-      
+
       transcriptMessages.scrollTop = transcriptMessages.scrollHeight;
     }
 
@@ -1262,12 +1327,22 @@
       toggleTranscriptBtn.classList.toggle('active', !isCollapsed);
       localStorage.setItem('transcriptCollapsed', isCollapsed);
 
+      const resizer = document.getElementById('paneResizer');
+      if (resizer) {
+        resizer.style.display = isCollapsed ? 'none' : 'block';
+      }
+
       // Adjust window width dynamically: 500px if collapsed, 800px if expanded
       if (whysperAPI && whysperAPI.getWindowStats && whysperAPI.resizeWindow) {
         try {
           const stats = await whysperAPI.getWindowStats();
           const chatWindow = stats.windows?.chat;
           const currentHeight = chatWindow ? chatWindow.height : 700;
+
+          if (!isCollapsed) {
+            transcriptPane.style.width = '300px';
+          }
+
           const targetWidth = isCollapsed ? 500 : 800;
           await whysperAPI.resizeWindow(targetWidth, currentHeight);
         } catch (error) {
@@ -1293,16 +1368,16 @@
       try {
         const dateStr = new Date().toISOString().replace(/[:.]/g, '-');
         const filename = `transcript-${dateStr}.txt`;
-        
+
         let output = `Vysper Meeting Transcript\n`;
         output += `Exported: ${new Date().toLocaleString()}\n`;
         output += `========================================\n\n`;
-        
+
         meetingListener.transcriptBuffer.segments.forEach((seg) => {
           const time = new Date(seg.timestamp).toLocaleTimeString();
           output += `[${time}] (${seg.source}): ${seg.text}\n\n`;
         });
-        
+
         const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1312,7 +1387,7 @@
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
+
         logActivity(`Transcript exported successfully as ${filename}`, 'success');
       } catch (error) {
         logActivity(`Failed to export transcript: ${error.message}`, 'error');
@@ -1326,12 +1401,12 @@
       },
       onError: (error) => {
         const lowerErr = error.toLowerCase();
-        const isMicError = lowerErr.includes('permission') || 
-                           lowerErr.includes('not-allowed') || 
-                           lowerErr.includes('not available') || 
-                           lowerErr.includes('audio-capture') ||
-                           lowerErr.includes('initialization') ||
-                           lowerErr.includes('no system audio');
+        const isMicError = lowerErr.includes('permission') ||
+          lowerErr.includes('not-allowed') ||
+          lowerErr.includes('not available') ||
+          lowerErr.includes('audio-capture') ||
+          lowerErr.includes('initialization') ||
+          lowerErr.includes('no system audio');
         if (isMicError) {
           addMessage(`Meeting audio error: ${error}`, 'error');
         } else {
@@ -1370,7 +1445,7 @@
       } else if (isListening) {
         updateLiveTranscript('', audioLevelHint);
       }
-      
+
       // Sync Transcript Timeline Area
       renderTranscriptTimeline();
     }
@@ -1379,9 +1454,9 @@
     const audioRecognition = meetingListener;
 
     // Obsolete Live Transcript Functions (removed live transcript box)
-    function showLiveTranscriptBox() {}
-    function hideLiveTranscriptBox() {}
-    function updateLiveTranscript(finalText, interimText) {}
+    function showLiveTranscriptBox() { }
+    function hideLiveTranscriptBox() { }
+    function updateLiveTranscript(finalText, interimText) { }
 
     // Basic message function with markdown support for assistant messages
     function addMessage(text, type = 'user') {
@@ -1398,6 +1473,10 @@
 
       const messageDiv = document.createElement('div');
       messageDiv.className = `message ${type}`;
+
+      if (type === 'user') {
+        lastUserBubble = messageDiv;
+      }
 
       const timeDiv = document.createElement('div');
       timeDiv.className = 'message-time';
@@ -1417,13 +1496,37 @@
       messageDiv.appendChild(textDiv);
 
       chatMessages.appendChild(messageDiv);
-      if (type === 'assistant') {
-        setTimeout(() => {
-          messageDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 50);
-      } else {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function summarizeTranscriptRequest(text) {
+      if (!text) return '';
+      const clean = text.trim();
+      if (clean.length <= 100) return clean;
+
+      // Clean up meeting artifacts
+      let queryText = clean;
+
+      // Try to find questions
+      const sentences = queryText.split(/[.!?]+/).map(s => s.trim()).filter(Boolean);
+      const questions = queryText.match(/[^.!?]+\?/g);
+
+      if (questions && questions.length > 0) {
+        // Return the last question found, capped at 120 chars
+        const lastQuestion = questions[questions.length - 1].trim();
+        if (lastQuestion.length <= 120) {
+          return `🎙️ Question heard: "${lastQuestion}"`;
+        }
+        return `🎙️ Question heard: "${lastQuestion.substring(0, 117)}..."`;
       }
+
+      // Fallback: take the last sentence
+      const lastSentence = sentences[sentences.length - 1];
+      if (lastSentence && lastSentence.length > 10 && lastSentence.length <= 120) {
+        return `🎙️ Heard: "...${lastSentence}."`;
+      }
+
+      // General truncation
+      return `🎙️ Heard: "${queryText.substring(0, 117)}..."`;
     }
 
     // Markdown formatter using markdown.js library
@@ -1529,26 +1632,26 @@
       if (text && text.trim()) {
         interimOverlay.textContent = text;
         interimOverlay.classList.add('active');
-        
+
         // Show in Transcript Pane in real-time
         if (transcriptMessages) {
           // Remove empty message if visible
           const emptyMsg = document.getElementById('emptyTranscriptMsg');
           if (emptyMsg) emptyMsg.remove();
-          
+
           let interimSeg = document.getElementById('interimTranscriptSegment');
           if (!interimSeg) {
             interimSeg = document.createElement('div');
             interimSeg.id = 'interimTranscriptSegment';
             interimSeg.className = 'transcript-segment interim';
-            
+
             const timeSpan = document.createElement('span');
             timeSpan.className = 'transcript-time';
             timeSpan.textContent = new Date().toLocaleTimeString();
-            
+
             const textSpan = document.createElement('span');
             textSpan.className = 'transcript-text';
-            
+
             interimSeg.appendChild(timeSpan);
             interimSeg.appendChild(textSpan);
             transcriptMessages.appendChild(interimSeg);
@@ -1558,7 +1661,7 @@
         }
       } else {
         interimOverlay.classList.remove('active');
-        
+
         // Remove from Transcript Pane
         const interimSeg = document.getElementById('interimTranscriptSegment');
         if (interimSeg) {
@@ -1630,9 +1733,11 @@
         }
 
         if (manualText) {
+          hasAddedUserBubble = true;
           addMessage(manualText, 'user');
         } else if (newTranscript) {
-          addMessage(`Heard: "${newTranscript.substring(0, 200)}${newTranscript.length > 200 ? '…' : ''}"`, 'transcription');
+          hasAddedUserBubble = true;
+          addMessage(summarizeTranscriptRequest(newTranscript), 'user');
         }
 
         if (messageInput) {
@@ -1641,9 +1746,12 @@
 
         refreshTranscriptPreview();
 
-        setTimeout(() => {
-          showThinkingIndicator();
-        }, 300);
+        if (whysperAPI && whysperAPI.removeResponseListeners) {
+          whysperAPI.removeResponseListeners();
+          registerResponseListeners();
+        }
+
+        showThinkingIndicator();
 
         if (whysperAPI && whysperAPI.sendChatMessage) {
           await whysperAPI.sendChatMessage(manualText);
@@ -1690,15 +1798,148 @@
         handleRecordingStopped();
       });
 
+      whysperAPI.onSessionStarted(async () => {
+        console.log('[UI] session-started received, starting audio capture');
+        if (!isListening) {
+          try {
+            await meetingListener.start();
+          } catch (err) {
+            console.error('Failed to automatically start listening on session start:', err);
+          }
+        }
+      });
+
+      whysperAPI.onSessionStopped(async () => {
+        console.log('[UI] session-stopped received, stopping audio capture');
+        if (isListening) {
+          try {
+            await meetingListener.stop();
+          } catch (err) {
+            console.error('Failed to automatically stop listening on session stop:', err);
+          }
+        }
+      });
+
       whysperAPI.onSessionCleared(() => {
         addMessage('Session memory has been cleared', 'system');
         meetingListener.transcriptBuffer.segments = [];
         meetingListener.transcriptBuffer.lastAnswerAt = 0;
         meetingListener.audioChunksSinceLastAnswer = [];
         refreshTranscriptPreview();
+        if (chatMessages) {
+          chatMessages.innerHTML = '';
+        }
       });
 
+      let activeBubble = null;
+      let rawTextAccumulator = '';
+
+      function createAssistantBubble() {
+        if (!chatMessages) return null;
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message assistant';
+
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'message-time';
+        timeDiv.textContent = new Date().toLocaleTimeString();
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'message-text';
+        textDiv.textContent = ''; // empty initially
+
+        messageDiv.appendChild(timeDiv);
+        messageDiv.appendChild(textDiv);
+
+        chatMessages.appendChild(messageDiv);
+        return messageDiv;
+      }
+
+      function registerResponseListeners() {
+        if (!whysperAPI) return;
+
+        if (whysperAPI.onResponseStart) {
+          whysperAPI.onResponseStart((data) => {
+            hideThinkingIndicator();
+
+            // Reconstruct yellow request bubble if not already present
+            if (data && data.text) {
+              if (data.type === 'transcription') {
+                addMessage(summarizeTranscriptRequest(data.text), 'user');
+              } else if (data.type === 'screenshot') {
+                if (!hasAddedUserBubble) {
+                  addMessage(`📸 Screenshot Request: "${data.text || 'Analyze screenshot'}"`, 'user');
+                }
+              } else if (data.type === 'chat') {
+                if (!hasAddedUserBubble) {
+                  addMessage(data.text, 'user');
+                }
+              }
+            }
+
+            hasAddedUserBubble = false;
+
+            activeBubble = createAssistantBubble();
+            rawTextAccumulator = '';
+
+            // Scroll the yellow bubble to the top of the viewport
+            if (chatMessages && lastUserBubble) {
+              setTimeout(() => {
+                const childRect = lastUserBubble.getBoundingClientRect();
+                const containerRect = chatMessages.getBoundingClientRect();
+                const scrollTarget = childRect.top - containerRect.top + chatMessages.scrollTop;
+
+                chatMessages.scrollTo({
+                  top: scrollTarget,
+                  behavior: 'smooth'
+                });
+              }, 100);
+            }
+          });
+        }
+
+        if (whysperAPI.onChunk) {
+          whysperAPI.onChunk((chunk) => {
+            rawTextAccumulator += chunk;
+            if (activeBubble) {
+              const textDiv = activeBubble.querySelector('.message-text');
+              if (textDiv) {
+                textDiv.innerHTML = formatMarkdown(rawTextAccumulator);
+              }
+            }
+          });
+        }
+
+        if (whysperAPI.onResponseEnd) {
+          whysperAPI.onResponseEnd(() => {
+            if (activeBubble && rawTextAccumulator) {
+              const textDiv = activeBubble.querySelector('.message-text');
+              if (textDiv) {
+                textDiv.innerHTML = formatMarkdown(rawTextAccumulator);
+              }
+            }
+            activeBubble = null;
+            rawTextAccumulator = '';
+          });
+        }
+
+        if (whysperAPI.onResponseError) {
+          whysperAPI.onResponseError((errMsg) => {
+            hideThinkingIndicator();
+            addMessage(`AI Error: ${errMsg}`, 'error');
+            activeBubble = null;
+            rawTextAccumulator = '';
+          });
+        }
+      }
+
+      // Initialize response listeners on startup
+      registerResponseListeners();
+
       whysperAPI.onTranscriptionLlmResponse((event, data) => {
+        if (whysperAPI.onChunk) {
+          return; // Ignore static response if streaming is supported
+        }
         if (data && data.response) {
           // Hide thinking indicator
           hideThinkingIndicator();
@@ -1781,12 +2022,54 @@
         if (confirm('Clear session history and meeting transcripts?')) {
           if (whysperAPI && whysperAPI.clearSessionMemory) {
             await whysperAPI.clearSessionMemory();
+            if (chatMessages) {
+              chatMessages.innerHTML = '';
+            }
           }
         }
       });
     }
     if (exportTranscriptBtn) {
       exportTranscriptBtn.addEventListener('click', exportTranscript);
+    }
+
+    // Draggable Resizer Logic for Chat and Transcription Panes
+    const resizer = document.getElementById('paneResizer');
+    const rightPane = document.getElementById('transcriptPane');
+    const chatContainerElement = document.getElementById('chatContainer');
+
+    if (resizer && rightPane) {
+      resizer.style.display = rightPane.classList.contains('collapsed') ? 'none' : 'block';
+    }
+
+    if (resizer && rightPane && chatContainerElement) {
+      let isResizing = false;
+
+      resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        resizer.classList.add('resizing');
+        document.body.style.cursor = 'col-resize';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+
+        const containerRect = chatContainerElement.getBoundingClientRect();
+        const rightWidth = containerRect.right - e.clientX;
+
+        if (rightWidth > 150 && rightWidth < (containerRect.width * 0.7)) {
+          rightPane.style.width = `${rightWidth}px`;
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (isResizing) {
+          isResizing = false;
+          resizer.classList.remove('resizing');
+          document.body.style.cursor = '';
+        }
+      });
     }
     if (closeActivityBtn) {
       closeActivityBtn.addEventListener('click', toggleActivity);
@@ -1884,6 +2167,32 @@
       });
     }
 
+    if (whysperAPI && whysperAPI.onSessionStarted) {
+      whysperAPI.onSessionStarted(async () => {
+        console.log('[UI] Session started, enabling microphone...');
+        if (!isListening) {
+          try {
+            await meetingListener.start();
+          } catch (error) {
+            addMessage(`⚠️ Failed to start microphone: ${error.message}`, 'error');
+          }
+        }
+      });
+    }
+
+    if (whysperAPI && whysperAPI.onSessionStopped) {
+      whysperAPI.onSessionStopped(async () => {
+        console.log('[UI] Session stopped, disabling microphone...');
+        if (isListening) {
+          try {
+            await meetingListener.stop();
+          } catch (error) {
+            console.error('[UI] Failed to stop microphone:', error);
+          }
+        }
+      });
+    }
+
     // Initialize
     addMessage('Meeting assistant ready. Toggle 🎤 (or Alt+R) to capture meeting audio. Press Enter to answer.', 'system');
 
@@ -1920,7 +2229,7 @@
             const chatWindow = stats.windows?.chat;
             const currentHeight = chatWindow ? chatWindow.height : 700;
             await whysperAPI.resizeWindow(800, currentHeight);
-          } catch (e) {}
+          } catch (e) { }
         }
       }, 500);
     }
@@ -1952,6 +2261,37 @@
     console.log('whysperAPI available:', !!whysperAPI);
     console.log('micButton found:', !!micButton);
     console.log('messageInput found:', !!messageInput);
+
+    // --- Persistent Session Status Polling ---
+    async function updateSessionBadge() {
+      const api = window.electronAPI;
+      if (!api || !api.sessionStatus) return;
+
+      try {
+        const status = await api.sessionStatus();
+        const dot = document.getElementById('session-badge-dot');
+        const text = document.getElementById('session-badge-text');
+
+        if (!dot || !text) return;
+
+        if (status.isIdle) {
+          dot.style.background = '#666';
+          text.textContent = 'Idle';
+          text.style.color = '#aaa';
+        } else {
+          dot.style.background = '#22c55e';
+          text.textContent = status.activeSession.title || 'Session Active';
+          text.style.color = '#fff';
+        }
+      } catch (err) {
+        console.error('Failed to update session status badge:', err);
+      }
+    }
+
+    // Poll status every 5 seconds
+    updateSessionBadge();
+    setInterval(updateSessionBadge, 5000);
+
 
     // --- Copy on Selection Implementation ---
     (function () {
@@ -2095,6 +2435,36 @@
       // Hide on scroll
       document.addEventListener('scroll', hideTooltip, { capture: true, passive: true });
     })();
+
+    // Font size and background opacity styling listeners
+    const applyAppSettings = (settings) => {
+      if (!settings) return;
+      const fontSize = settings.fontSize || 13;
+      document.documentElement.style.setProperty('--app-font-size', `${fontSize}px`);
+      document.body.style.fontSize = `${fontSize}px`;
+
+      if (typeof meetingListener !== 'undefined' && meetingListener) {
+        meetingListener.includeMicrophone = settings.includeMicrophone !== false;
+        meetingListener.includeSystemAudio = settings.includeSystemAudio !== false;
+      }
+
+      const opacity = settings.bgOpacity !== undefined ? settings.bgOpacity : 0.85;
+      const chatContainer = document.querySelector('.chat-container');
+      if (chatContainer) {
+        chatContainer.style.background = `rgba(15, 15, 15, ${opacity})`;
+      }
+    };
+
+    if (window.electronAPI) {
+      if (window.electronAPI.getSettings) {
+        window.electronAPI.getSettings().then(applyAppSettings).catch(err => console.error(err));
+      }
+      if (window.electronAPI.onSettingsUpdated) {
+        window.electronAPI.onSettingsUpdated((event, settings) => {
+          applyAppSettings(settings);
+        });
+      }
+    }
   </script>
 </body>
 

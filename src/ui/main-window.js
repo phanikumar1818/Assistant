@@ -209,10 +209,23 @@ class MainWindowUI {
         // Wait for DOM to fully render
         setTimeout(() => {
             const commandTab = document.querySelector('.command-tab');
+            const sessionBar = document.getElementById('session-control-bar');
+            const historyPanel = document.getElementById('history-panel');
+            
             if (commandTab && window.electronAPI && window.electronAPI.resizeWindow) {
                 const rect = commandTab.getBoundingClientRect();
-                const width = Math.ceil(rect.width);
-                const height = Math.ceil(rect.height);
+                let width = 520;
+                let height = Math.ceil(rect.height) + 12; // Base height + padding
+                
+                if (sessionBar && sessionBar.style.display !== 'none') {
+                    const sessionRect = sessionBar.getBoundingClientRect();
+                    height += Math.ceil(sessionRect.height) + 6;
+                }
+                
+                if (historyPanel && historyPanel.style.display === 'flex') {
+                    const historyRect = historyPanel.getBoundingClientRect();
+                    height += Math.ceil(historyRect.height) + 12;
+                }
                 
                 logger.debug('Resizing window to content', {
                     width,
@@ -245,17 +258,14 @@ class MainWindowUI {
             });
         }
 
-        // Add click handler for microphone — toggles continuous meeting listening in chat window
+        // Add click handler for chat panel button — switches to chat window
         this.micButton.addEventListener('click', async () => {
             if (this.isInteractive) {
                 if (window.electronAPI.switchToChat) {
                     await window.electronAPI.switchToChat();
                 }
-                if (window.electronAPI.toggleContinuousListening) {
-                    await window.electronAPI.toggleContinuousListening();
-                }
             } else {
-                logger.info('Voice button pressed but in non-interactive mode');
+                logger.info('Chat panel button pressed but in non-interactive mode');
             }
         });
     }
@@ -887,8 +897,10 @@ class MainWindowUI {
         });
 
         const quitOption = this.createMenuItem('Quit Vysper', 'fa-power-off', () => {
-            if (window.electronAPI) {
-                window.electronAPI.quitApp();
+            if (confirm("Are you sure you want to quit Vysper Assistant?")) {
+                if (window.electronAPI && window.electronAPI.quit) {
+                    window.electronAPI.quit();
+                }
             }
         });
 
@@ -945,17 +957,20 @@ class MainWindowUI {
 // Initialize when DOM is ready
 let mainWindowUI;
 if (typeof document !== 'undefined') {
-    // Add immediate visual indicator that script is loading
     const style = document.createElement('style');
     document.head.appendChild(style);
     
-    document.addEventListener('DOMContentLoaded', () => {
-                
+    const initUI = () => {
         mainWindowUI = new MainWindowUI();
-        // Make it globally accessible for debugging
         window.mainWindowUI = mainWindowUI;
         logger.info('MainWindowUI initialized and available as window.mainWindowUI');
-    });
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initUI);
+    } else {
+        initUI();
+    }
 }
 
 // module.exports = MainWindowUI; // Not needed in browser context
