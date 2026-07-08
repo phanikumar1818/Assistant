@@ -69,6 +69,10 @@ function renderHistory(sessions) {
         style="padding: 3px 8px; font-size: 10px;">
         Open
       </button>
+      <button onclick="reopenSession('${session.id}')" class="session-btn"
+        style="padding: 3px 8px; font-size: 10px; background: rgba(76, 175, 80, 0.1); border-color: rgba(76, 175, 80, 0.25); color: #81c784;">
+        Reopen
+      </button>
       <button onclick="deleteSession('${session.id}')" class="session-btn"
         style="padding: 3px 8px; font-size: 10px; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.25); color: #f87171;">
         Delete
@@ -123,6 +127,26 @@ async function openSessionFile(sessionId) {
   }
 }
 
+async function reopenSession(sessionId) {
+  const api = window.whysperAPI || window.electronAPI;
+  if (!api || !api.sessionReopen) return;
+  const session = allSessions.find(s => s.id === sessionId);
+  const title = session ? session.title : 'this session';
+  
+  if (confirm(`Do you want to reopen "${title}" in the assistant? This will restore the transcript, facts, and documents for active interaction.`)) {
+    try {
+      const res = await api.sessionReopen(sessionId);
+      if (res && res.success) {
+        alert(`Session "${res.title}" successfully reopened! The assistant is now active with this session.`);
+      } else {
+        alert(`Failed to reopen session: ${res.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      alert(`Error reopening session: ${err.message}`);
+    }
+  }
+}
+
 // Export functions to global scope for inline HTML handlers
 window.loadHistory = loadHistory;
 window.filterHistory = filterHistory;
@@ -130,4 +154,5 @@ window.renameSession = renameSession;
 window.downloadSession = downloadSession;
 window.deleteSession = deleteSession;
 window.openSessionFile = openSessionFile;
+window.reopenSession = reopenSession;
 

@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
-// Mock electron app getPath
+// Mock electron app getPath and BrowserWindow
 const electronMock = {
   app: {
     getPath: (name) => {
@@ -11,6 +11,9 @@ const electronMock = {
       }
       return __dirname;
     }
+  },
+  BrowserWindow: {
+    getAllWindows: () => []
   }
 };
 
@@ -33,12 +36,39 @@ async function runTests() {
   console.log('Testing initialize()...');
   await manager.initialize();
   assert.ok(fs.existsSync(manager.sessionsDir), 'Sessions directory should be created');
+  assert.ok(fs.existsSync(manager.detailedSummaryDir), 'Detailed summary directory should be created');
   console.log('✓ initialize() passed\n');
 
-  // Clear mock directory if anything was left over
-  const files = fs.readdirSync(manager.sessionsDir);
-  for (const f of files) {
-    fs.unlinkSync(path.join(manager.sessionsDir, f));
+  // Clear mock directories if anything was left over
+  if (fs.existsSync(manager.sessionsDir)) {
+    const files = fs.readdirSync(manager.sessionsDir);
+    for (const f of files) {
+      const fp = path.join(manager.sessionsDir, f);
+      if (fs.statSync(fp).isDirectory()) {
+        const subfiles = fs.readdirSync(fp);
+        for (const sf of subfiles) {
+          fs.unlinkSync(path.join(fp, sf));
+        }
+        fs.rmdirSync(fp);
+      } else {
+        fs.unlinkSync(fp);
+      }
+    }
+  }
+  if (fs.existsSync(manager.detailedSummaryDir)) {
+    const files = fs.readdirSync(manager.detailedSummaryDir);
+    for (const f of files) {
+      const fp = path.join(manager.detailedSummaryDir, f);
+      if (fs.statSync(fp).isDirectory()) {
+        const subfiles = fs.readdirSync(fp);
+        for (const sf of subfiles) {
+          fs.unlinkSync(path.join(fp, sf));
+        }
+        fs.rmdirSync(fp);
+      } else {
+        fs.unlinkSync(fp);
+      }
+    }
   }
 
   // 2. startSession()
@@ -63,7 +93,7 @@ async function runTests() {
   manager.appendTranscriptLine('Today we will talk about meeting sessions.', '12:00:05 PM');
   
   // Wait a moment for debounced write or force it (we can test immediate by running write with force=true)
-  manager._writeFileToDisk(true);
+  await manager._writeFileToDisk(true);
   
   const contentWithTranscript = fs.readFileSync(manager.activeSession.filePath, 'utf8');
   assert.ok(contentWithTranscript.includes('[12:00:00 PM] Hello everyone, welcome to the design sync.'), 'Transcript line 1 should be written');
@@ -89,7 +119,7 @@ async function runTests() {
   };
   
   manager.updateSummary(mockNarrative, mockFacts);
-  manager._writeFileToDisk(true);
+  await manager._writeFileToDisk(true);
   
   const contentWithSummary = fs.readFileSync(manager.activeSession.filePath, 'utf8');
   assert.ok(contentWithSummary.includes(mockNarrative), 'Narrative summary should be written');
@@ -108,9 +138,14 @@ async function runTests() {
   
   const mockLlmService = {
     callGeminiRaw: async (prompt, logLabel) => {
-      assert.strictEqual(logLabel, 'TITLE GENERATION', 'Log label should be TITLE GENERATION');
-      assert.ok(prompt.includes(mockNarrative), 'Prompt should include narrative');
-      return '"Design Sync Session"'; // return with quotes to test stripping
+      if (logLabel === 'TITLE GENERATION') {
+        assert.ok(prompt.includes(mockNarrative) || prompt.includes('old narrative'), 'Prompt should include narrative');
+        return '"Design Sync Session"'; // return with quotes to test stripping
+      } else if (logLabel === 'DETAILED SUMMARY') {
+        assert.ok(prompt.includes('Line item 0'), 'Prompt should include transcript lines');
+        return 'Mocked detailed summary content';
+      }
+      throw new Error(`Unexpected logLabel: ${logLabel}`);
     }
   };
   
@@ -128,7 +163,22 @@ async function runTests() {
     layer2: "old narrative",
     layer3: "old transcript",
     unprocessedBuffer: "old buffer",
-    llmService: mockLlmService
+    llmService: mockLlmService,
+    finalizeRemaining: async function() {},
+    getMemorySnapshot: function() {
+      return {
+        layer1: this.layer1,
+        layer2: this.layer2,
+        layer3: this.layer3,
+        unprocessedBuffer: this.unprocessedBuffer
+      };
+    },
+    clear: function() {
+      this.layer1 = { decisions: [], action_items: [], constraints: [], key_facts: [] };
+      this.layer2 = '';
+      this.layer3 = '';
+      this.unprocessedBuffer = '';
+    }
   };
   
   const mockSessionManager = {
@@ -152,6 +202,14 @@ async function runTests() {
   assert.strictEqual(stopRes.title, 'Design Sync Session', 'Title should match');
   assert.strictEqual(manager.isIdle, true, 'Manager should be idle after stop');
   assert.strictEqual(manager.activeSession, null, 'Active session should be null');
+
+  // Verify detailed summary file is written in detailed_summary folder
+  const dateDirName = oldActiveSessionId.split('_')[0];
+  const expectedDetailedSummaryPath = path.join(manager.detailedSummaryDir, dateDirName, 'Design Sync Session.md');
+  assert.ok(fs.existsSync(expectedDetailedSummaryPath), 'Detailed summary file should be created');
+  const detailedSummaryContent = fs.readFileSync(expectedDetailedSummaryPath, 'utf8');
+  assert.ok(detailedSummaryContent.includes('# Detailed Summary: Design Sync Session'), 'Detailed summary should have correct title');
+  assert.ok(detailedSummaryContent.includes('Mocked detailed summary content'), 'Detailed summary should have correct content');
   
   // Verify resets
   assert.deepStrictEqual(mockMemoryService.layer1, { decisions: [], action_items: [], constraints: [], key_facts: [] }, 'Layer 1 should be cleared');
@@ -178,7 +236,7 @@ async function runTests() {
   
   const renamedSessions = await manager.listSessions();
   assert.strictEqual(renamedSessions[0].title, 'New Restructured Sync', 'Renamed title should reflect in list');
-  assert.ok(renamedSessions[0].filePath.includes('new-restructured-sync.md'), 'File should be renamed on disk');
+  assert.ok(renamedSessions[0].filePath.toLowerCase().includes('new restructured sync.md'), 'File should be renamed on disk');
   assert.ok(fs.existsSync(renamedSessions[0].filePath), 'Renamed file should exist on disk');
   console.log('✓ renameSession() passed\n');
 
@@ -214,6 +272,23 @@ try {
       fs.unlinkSync(path.join(mockSessionsDir, f));
     }
     fs.rmdirSync(mockSessionsDir);
+  }
+  const mockDetailedSummaryDir = path.join(mockDir, 'detailed_summary');
+  if (fs.existsSync(mockDetailedSummaryDir)) {
+    const dates = fs.readdirSync(mockDetailedSummaryDir);
+    for (const d of dates) {
+      const fullDateDir = path.join(mockDetailedSummaryDir, d);
+      if (fs.statSync(fullDateDir).isDirectory()) {
+        const files = fs.readdirSync(fullDateDir);
+        for (const f of files) {
+          fs.unlinkSync(path.join(fullDateDir, f));
+        }
+        fs.rmdirSync(fullDateDir);
+      } else {
+        fs.unlinkSync(fullDateDir);
+      }
+    }
+    fs.rmdirSync(mockDetailedSummaryDir);
   }
   if (fs.existsSync(mockDir)) {
     fs.rmdirSync(mockDir);

@@ -1083,6 +1083,99 @@
     .header-btn.active:hover {
       background: rgba(76, 175, 80, 0.3);
     }
+
+    /* Documents Sidebar Pane Styles */
+    .documents-pane {
+      width: 300px;
+      display: flex;
+      flex-direction: column;
+      background: rgba(0, 0, 0, 0.15);
+      border-left: 1px solid rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      -webkit-app-region: no-drag;
+    }
+
+    .documents-pane.collapsed {
+      width: 0;
+      border-left: none;
+    }
+
+    .document-item {
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      position: relative;
+    }
+
+    .document-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .document-name {
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    .document-status {
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .document-status.processing {
+      color: #ffa726;
+    }
+
+    .document-status.ready {
+      color: #81c784;
+    }
+
+    .document-status.failed {
+      color: #e57373;
+    }
+
+    .document-delete-btn {
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.4);
+      cursor: pointer;
+      font-size: 11px;
+      padding: 4px;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .document-delete-btn:hover {
+      color: #ff4757;
+      background: rgba(255, 71, 87, 0.1);
+    }
+
+    .document-summary-box {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.6);
+      background: rgba(0, 0, 0, 0.2);
+      padding: 6px 8px;
+      border-radius: 4px;
+      margin-top: 4px;
+      line-height: 1.4;
+      max-height: 80px;
+      overflow-y: auto;
+    }
   </style>
 </head>
 
@@ -1115,6 +1208,9 @@
         </div>
       </div>
       <div class="header-actions">
+        <button class="header-btn" id="toggleDocumentsBtn" title="Toggle Documents Pane">
+          <i class="fas fa-folder-open"></i>
+        </button>
         <button class="header-btn" id="toggleTranscriptBtn" title="Toggle Transcript Pane">
           <i class="fas fa-file-alt"></i>
         </button>
@@ -1206,6 +1302,21 @@
             capture.</div>
         </div>
       </div>
+
+      <!-- Documents Pane -->
+      <div class="documents-pane collapsed" id="documentsPane">
+        <div class="pane-header">
+          <div class="pane-title" style="display: flex; align-items: center; gap: 8px;">
+            <i class="fas fa-folder-open"></i> Attached Documents
+          </div>
+          <button class="export-btn" id="uploadDocumentBtn" title="Upload Document" style="background: rgba(76, 175, 80, 0.15); border-color: rgba(76, 175, 80, 0.3); color: #81c784;">
+            <i class="fas fa-plus"></i> Upload
+          </button>
+        </div>
+        <div class="transcript-messages" id="documentsList" style="flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+          <div class="status-message" id="emptyDocumentsMsg">No documents attached. Click Upload to add files.</div>
+        </div>
+      </div>
     </div>
 
     <!-- Bottom Pane: Activity / System Log Area (Collapsible) -->
@@ -1246,6 +1357,7 @@
 
     // New Separation Elements
     const toggleTranscriptBtn = document.getElementById('toggleTranscriptBtn');
+    const toggleDocumentsBtn = document.getElementById('toggleDocumentsBtn');
     const toggleActivityBtn = document.getElementById('toggleActivityBtn');
     const clearSessionBtn = document.getElementById('clearSessionBtn');
     const exportTranscriptBtn = document.getElementById('exportTranscriptBtn');
@@ -1253,6 +1365,10 @@
 
     const transcriptPane = document.getElementById('transcriptPane');
     const transcriptMessages = document.getElementById('transcriptMessages');
+
+    const documentsPane = document.getElementById('documentsPane');
+    const documentsList = document.getElementById('documentsList');
+    const uploadDocumentBtn = document.getElementById('uploadDocumentBtn');
 
     const activityPane = document.getElementById('activityPane');
     const activityLogs = document.getElementById('activityLogs');
@@ -1350,6 +1466,128 @@
         }
       }
     }
+
+    async function toggleDocuments() {
+      const isCollapsed = documentsPane.classList.toggle('collapsed');
+      toggleDocumentsBtn.classList.toggle('active', !isCollapsed);
+      localStorage.setItem('documentsCollapsed', isCollapsed);
+
+      // Mutually exclusive sidebars: close transcript pane if we open documents
+      if (!isCollapsed) {
+        if (!transcriptPane.classList.contains('collapsed')) {
+          transcriptPane.classList.add('collapsed');
+          toggleTranscriptBtn.classList.remove('active');
+          localStorage.setItem('transcriptCollapsed', true);
+          const resizer = document.getElementById('paneResizer');
+          if (resizer) resizer.style.display = 'none';
+        }
+      }
+
+      // Adjust window width dynamically: 500px if collapsed, 800px if expanded
+      if (whysperAPI && whysperAPI.getWindowStats && whysperAPI.resizeWindow) {
+        try {
+          const stats = await whysperAPI.getWindowStats();
+          const chatWindow = stats.windows?.chat;
+          const currentHeight = chatWindow ? chatWindow.height : 700;
+
+          const isAnyPaneOpen = !isCollapsed || !transcriptPane.classList.contains('collapsed');
+          const targetWidth = isAnyPaneOpen ? 800 : 500;
+          await whysperAPI.resizeWindow(targetWidth, currentHeight);
+        } catch (error) {
+          console.error('Failed to resize window:', error);
+        }
+      }
+
+      if (!isCollapsed) {
+        refreshDocumentsList();
+      }
+    }
+
+    async function refreshDocumentsList() {
+      if (!documentsList) return;
+
+      try {
+        const docs = await whysperAPI.getDocumentsList();
+        
+        if (!docs || docs.length === 0) {
+          documentsList.innerHTML = '<div class="status-message" id="emptyDocumentsMsg">No documents attached. Click Upload to add files.</div>';
+          return;
+        }
+
+        documentsList.innerHTML = '';
+
+        docs.forEach(doc => {
+          const itemDiv = document.createElement('div');
+          itemDiv.className = 'document-item';
+
+          // Select icon based on file type
+          let icon = 'fa-file-alt';
+          const ext = doc.filename.split('.').pop().toLowerCase();
+          if (ext === 'pdf') icon = 'fa-file-pdf';
+          else if (ext === 'docx') icon = 'fa-file-word';
+          else if (['js', 'jsx', 'ts', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'go', 'rs', 'html', 'css', 'json'].includes(ext)) {
+            icon = 'fa-file-code';
+          }
+
+          let statusIcon = 'fa-spinner fa-spin';
+          let statusLabel = 'Processing...';
+          let statusClass = 'processing';
+
+          if (doc.status === 'ready') {
+            statusIcon = 'fa-check-circle';
+            statusLabel = 'Ready';
+            statusClass = 'ready';
+          } else if (doc.status === 'failed') {
+            statusIcon = 'fa-exclamation-circle';
+            statusLabel = `Failed: ${doc.error || 'Unknown error'}`;
+            statusClass = 'failed';
+          }
+
+          let summaryHtml = '';
+          if (doc.status === 'ready' && doc.summary) {
+            summaryHtml = `<div class="document-summary-box" title="AI Summary">${doc.summary}</div>`;
+          }
+
+          itemDiv.innerHTML = `
+            <div class="document-header">
+              <i class="fas ${icon}" style="color: rgba(255,255,255,0.7); font-size: 14px;"></i>
+              <span class="document-name" title="${doc.filename}">${doc.filename}</span>
+              <button class="document-delete-btn" onclick="deleteDocument('${doc.id}')" title="Remove Document">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+            <div class="document-status ${statusClass}">
+              <i class="fas ${statusIcon}"></i>
+              <span>${statusLabel}</span>
+            </div>
+            ${summaryHtml}
+          `;
+
+          documentsList.appendChild(itemDiv);
+        });
+
+      } catch (error) {
+        console.error('Failed to load documents list:', error);
+        documentsList.innerHTML = '<div class="status-message" style="color: #ff4757;">Failed to load documents.</div>';
+      }
+    }
+
+    // Expose deleteDocument globally for inline HTML button click
+    window.deleteDocument = async function(docId) {
+      if (confirm('Are you sure you want to remove this document from the meeting?')) {
+        try {
+          const res = await whysperAPI.deleteDocument(docId);
+          if (res && res.success) {
+            logActivity('Document removed successfully.', 'info');
+            refreshDocumentsList();
+          } else {
+            logActivity('Failed to remove document.', 'error');
+          }
+        } catch (err) {
+          logActivity(`Error removing document: ${err.message}`, 'error');
+        }
+      }
+    };
 
     function toggleActivity() {
       const isCollapsed = activityPane.classList.toggle('collapsed');
@@ -1769,11 +2007,42 @@
     // Basic IPC Event Listeners
 
     if (whysperAPI) {
+      // Listen for local Whisper interim transcription updates
+      if (typeof whysperAPI.onInterimTranscription === 'function') {
+        whysperAPI.onInterimTranscription((event, data) => {
+          const text = data && typeof data === 'object' ? data.text : data;
+          showInterimText(text);
+        });
+      }
+
       // Listen for local Whisper transcription segments
       whysperAPI.onTranscriptSegment((segment) => {
+        const renderer_receives = Date.now();
         if (segment && segment.text) {
+          // Clear interim text overlay and pane elements
+          showInterimText('');
+
           meetingListener.transcriptBuffer.appendSegment(segment.text, 'whisper');
           refreshTranscriptPreview();
+
+          const dom_updated = Date.now();
+
+          // Wait for browser screen paint
+          requestAnimationFrame(() => {
+            const displayed = Date.now();
+
+            if (segment.metadata && typeof whysperAPI.sendTranscriptRendered === 'function') {
+              whysperAPI.sendTranscriptRendered({
+                id: segment.id,
+                timestamps: {
+                  ...segment.metadata,
+                  renderer_receives,
+                  dom_updated,
+                  displayed
+                }
+              }).catch((err) => console.error('Failed to send render feedback:', err));
+            }
+          });
         }
       });
 
@@ -1800,6 +2069,8 @@
 
       whysperAPI.onSessionStarted(async () => {
         console.log('[UI] session-started received, starting audio capture');
+        updateSessionBadge();
+        refreshDocumentsList();
         if (!isListening) {
           try {
             await meetingListener.start();
@@ -1811,6 +2082,7 @@
 
       whysperAPI.onSessionStopped(async () => {
         console.log('[UI] session-stopped received, stopping audio capture');
+        updateSessionBadge();
         if (isListening) {
           try {
             await meetingListener.stop();
@@ -1828,6 +2100,9 @@
         refreshTranscriptPreview();
         if (chatMessages) {
           chatMessages.innerHTML = '';
+        }
+        if (documentsList) {
+          documentsList.innerHTML = '<div class="status-message" id="emptyDocumentsMsg">No documents attached. Click Upload to add files.</div>';
         }
       });
 
@@ -2014,9 +2289,95 @@
     if (toggleTranscriptBtn) {
       toggleTranscriptBtn.addEventListener('click', toggleTranscript);
     }
+    if (toggleDocumentsBtn) {
+      toggleDocumentsBtn.addEventListener('click', toggleDocuments);
+    }
     if (toggleActivityBtn) {
       toggleActivityBtn.addEventListener('click', toggleActivity);
     }
+    if (uploadDocumentBtn) {
+      uploadDocumentBtn.addEventListener('click', async () => {
+        try {
+          if (whysperAPI && whysperAPI.sessionStatus) {
+            const status = await whysperAPI.sessionStatus();
+            if (status.isIdle) {
+              addMessage('⚠️ Cannot upload documents: No active session. Please start or reopen a session first.', 'error');
+              return;
+            }
+          }
+          const res = await whysperAPI.uploadDocuments();
+          if (res && res.success) {
+            logActivity(`Document upload initiated.`, 'info');
+            refreshDocumentsList();
+          } else if (res && res.error && res.error !== 'Cancelled') {
+            logActivity(`Document upload failed: ${res.error}`, 'error');
+          }
+        } catch (err) {
+          logActivity(`Upload failed: ${err.message}`, 'error');
+        }
+      });
+    }
+
+    // Bind document status updates with system notifications in chat bubble window
+    const lastKnownStatuses = {};
+    if (whysperAPI && whysperAPI.onDocumentsUpdated) {
+      whysperAPI.onDocumentsUpdated((event, docs) => {
+        if (docs && Array.isArray(docs)) {
+          docs.forEach(doc => {
+            const lastStatus = lastKnownStatuses[doc.id];
+            if (lastStatus !== doc.status) {
+              if (doc.status === 'processing') {
+                addMessage(`📎 Uploading & processing attached document: "${doc.filename}"...`, 'system');
+              } else if (doc.status === 'ready') {
+                addMessage(`✅ Document successfully loaded: "${doc.filename}" is now fully indexed and ready for reference query.`, 'system');
+              } else if (doc.status === 'failed') {
+                addMessage(`❌ Document failure: "${doc.filename}" failed processing: ${doc.error || 'Unknown error'}`, 'error');
+              }
+              lastKnownStatuses[doc.id] = doc.status;
+            }
+          });
+        }
+        refreshDocumentsList();
+      });
+    }
+
+    // Drag & Drop File Upload Support
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    document.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Check session status first
+      if (whysperAPI && whysperAPI.sessionStatus) {
+        const status = await whysperAPI.sessionStatus();
+        if (status.isIdle) {
+          addMessage('⚠️ Cannot attach documents: No active session. Please start or reopen a session first.', 'error');
+          return;
+        }
+      }
+
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        const filePaths = Array.from(files).map(f => f.path).filter(Boolean);
+        if (filePaths.length > 0) {
+          try {
+            logActivity(`Dropped file paths: ${filePaths.join(', ')}`, 'info');
+            const res = await whysperAPI.uploadPaths(filePaths);
+            if (res && res.success) {
+              refreshDocumentsList();
+            } else if (res && res.error) {
+              addMessage(`❌ Drop upload failed: ${res.error}`, 'error');
+            }
+          } catch (err) {
+            addMessage(`❌ Upload error: ${err.message}`, 'error');
+          }
+        }
+      }
+    });
     if (clearSessionBtn) {
       clearSessionBtn.addEventListener('click', async () => {
         if (confirm('Clear session history and meeting transcripts?')) {
@@ -2216,12 +2577,12 @@
 
     // Restore collapsible panel states from localStorage
     const savedTranscriptCollapsed = localStorage.getItem('transcriptCollapsed') !== 'false';
+    const savedDocumentsCollapsed = localStorage.getItem('documentsCollapsed') !== 'false';
     const savedActivityCollapsed = localStorage.getItem('activityCollapsed') !== 'false';
 
     if (!savedTranscriptCollapsed) {
       transcriptPane.classList.remove('collapsed');
       toggleTranscriptBtn.classList.add('active');
-      // Resize window to 800px width on load if transcript was open
       setTimeout(async () => {
         if (whysperAPI && whysperAPI.getWindowStats && whysperAPI.resizeWindow) {
           try {
@@ -2233,6 +2594,24 @@
         }
       }, 500);
     }
+
+    if (!savedDocumentsCollapsed) {
+      documentsPane.classList.remove('collapsed');
+      toggleDocumentsBtn.classList.add('active');
+      setTimeout(async () => {
+        if (whysperAPI && whysperAPI.getWindowStats && whysperAPI.resizeWindow) {
+          try {
+            const stats = await whysperAPI.getWindowStats();
+            const chatWindow = stats.windows?.chat;
+            const currentHeight = chatWindow ? chatWindow.height : 700;
+            await whysperAPI.resizeWindow(800, currentHeight);
+          } catch (e) { }
+        }
+      }, 500);
+    }
+
+    // Load initial documents list
+    refreshDocumentsList();
 
     if (!savedActivityCollapsed) {
       activityPane.classList.remove('collapsed');
@@ -2274,14 +2653,32 @@
 
         if (!dot || !text) return;
 
+        const uploadBtn = document.getElementById('uploadDocumentBtn');
+        const emptyDocsMsg = document.getElementById('emptyDocumentsMsg');
+
         if (status.isIdle) {
           dot.style.background = '#666';
           text.textContent = 'Idle';
           text.style.color = '#aaa';
+
+          if (uploadBtn) {
+            uploadBtn.disabled = true;
+            uploadBtn.style.opacity = '0.5';
+            uploadBtn.style.pointerEvents = 'none';
+          }
+          if (documentsList) {
+            documentsList.innerHTML = '<div class="status-message" id="emptyDocumentsMsg">No active session. Please start or reopen a session to attach documents.</div>';
+          }
         } else {
           dot.style.background = '#22c55e';
           text.textContent = status.activeSession.title || 'Session Active';
           text.style.color = '#fff';
+
+          if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.style.opacity = '1';
+            uploadBtn.style.pointerEvents = 'auto';
+          }
         }
       } catch (err) {
         console.error('Failed to update session status badge:', err);

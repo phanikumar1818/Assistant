@@ -327,10 +327,10 @@ try {
 
     _startChunkTimer() {
       this._stopChunkTimer();
-      // Slice and transcribe a 4-second chunk every 4 seconds
+      // Slice and stream a 500ms chunk every 500ms
       this.chunkIntervalId = setInterval(() => {
         this._sendAudioWindow();
-      }, 4000);
+      }, 500);
     }
 
     _stopChunkTimer() {
@@ -364,18 +364,18 @@ try {
       this.audioChunksBuffer = [];
       this.totalBufferedSamples = 0;
 
-      // Skip silent chunks
-      const rms = this._calculateRMS(fullBuffer);
-      if (rms < 0.0005) {
-        return;
-      }
-
       // Resample to 16kHz
       const resampled = this._resampleTo16k(fullBuffer, sampleRate);
 
       // Send to main process via IPC
       if (window.electronAPI && typeof window.electronAPI.sendAudioChunk === 'function') {
-        window.electronAPI.sendAudioChunk(resampled);
+        const id = `chunk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const audioCreationTimestamp = Date.now();
+        window.electronAPI.sendAudioChunk({
+          id,
+          audioCreationTimestamp,
+          pcmFloat32Array: resampled
+        });
       }
     }
 

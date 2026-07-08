@@ -24,6 +24,7 @@ const transcriptStore = require("./src/services/transcript-store");
 const contextBuilder = require("./src/services/context-builder");
 const MeetingMemoryService = require("./src/services/meeting-memory.service");
 const meetingMemoryService = new MeetingMemoryService(llmService);
+const documentService = require("./src/services/document.service");
 const PersistentSessionManager = require("./src/services/persistent-session.manager");
 const persistentSession = new PersistentSessionManager();
 
@@ -74,6 +75,7 @@ class ApplicationController {
     this.pendingScreenshot = null; // Store pending screenshot for AI context
     this.meetingTranscript = { segments: [], lastAnswerAt: 0 };
     this.currentRequestId = 0;
+    this.activeTranscriptions = new Map();
 
     this.loadSettings();
 
@@ -316,38 +318,69 @@ class ApplicationController {
     });
 
     // Handle PCM audio chunks streamed from renderer process
-    ipcMain.on("audio-chunk", async (event, float32Array) => {
+    ipcMain.on("audio-chunk", (event, chunkData) => {
       try {
-        BrowserWindow.getAllWindows().forEach((window) => {
-          window.webContents.send("whisper-status", { status: 'transcribing' });
-        });
-
-        logger.debug("Received audio chunk for transcription", { samples: float32Array.length });
-
-        // Get the last 2 segments of text to use as prompt context
-        const allSegments = transcriptStore.getAll();
-        const previousText = allSegments.slice(-2).map(s => s.text).join(" ");
-
-        const result = await whisperService.transcribe(float32Array, previousText);
-
-        BrowserWindow.getAllWindows().forEach((window) => {
-          window.webContents.send("whisper-status", { status: 'idle' });
-        });
-
-        if (result && result.text) {
-          logger.info(`Whisper segment transcribed: "${result.text}" (latency: ${result.durationMs}ms)`);
-          const segment = transcriptStore.append({ text: result.text });
-          if (segment) {
-            // Send new segment back to renderer windows for live rolling preview
-            BrowserWindow.getAllWindows().forEach((window) => {
-              window.webContents.send("transcript-segment", segment);
-            });
-          }
+        let pcmFloat32Array;
+        let id, audioCreationTimestamp;
+        if (chunkData && chunkData.pcmFloat32Array) {
+          pcmFloat32Array = chunkData.pcmFloat32Array;
+          id = chunkData.id;
+          audioCreationTimestamp = chunkData.audioCreationTimestamp;
+        } else {
+          pcmFloat32Array = chunkData;
+          id = `legacy_chunk_${Date.now()}`;
+          audioCreationTimestamp = Date.now();
         }
+
+        // Feed the stream chunk to whisperService (completely non-blocking) with metadata timestamps
+        whisperService.feedAudioStream(pcmFloat32Array, { id, audioCreationTimestamp });
       } catch (error) {
-        logger.error("Failed to transcribe audio chunk with local Whisper:", error);
+        logger.error("Failed to stream audio chunk to Whisper:", error);
+      }
+    });
+
+    // Listen to real-time Whisper service streaming events
+    whisperService.on('interim', ({ text, metadata }) => {
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send("interim-transcription", { text, metadata });
+      });
+    });
+
+    whisperService.on('final', ({ text, durationMs, metadata }) => {
+      const main_receives = Date.now();
+      logger.info(`Whisper segment finalized: "${text}" (inference time: ${durationMs}ms)`);
+      const segment = transcriptStore.append({ text });
+      if (segment) {
+        segment.id = (metadata && metadata.id) || `chunk_final_${Date.now()}`;
+        
+        const ipc_to_renderer = Date.now();
+        segment.metadata = {
+          ...metadata,
+          main_receives,
+          ipc_to_renderer
+        };
+
+        // Broadcast final segment to renderer
         BrowserWindow.getAllWindows().forEach((window) => {
-          window.webContents.send("whisper-status", { status: 'idle' });
+          window.webContents.send("transcript-segment", segment);
+        });
+
+        // Decouple slower downstream operations (memory updates/LLM calls) to prevent blocking
+        setImmediate(() => {
+          const estTime = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          }).format(new Date());
+
+          try {
+            meetingMemoryService.appendTranscript(text, estTime);
+            persistentSession.appendTranscriptLine(text, estTime);
+          } catch (err) {
+            logger.error("Error in decoupled downstream memory/session append:", err);
+          }
         });
       }
     });
@@ -532,6 +565,48 @@ class ApplicationController {
       return meetingMemoryService.exportSession();
     });
 
+    ipcMain.handle("transcript-rendered", (event, { id, timestamps }) => {
+      if (!timestamps) return { success: false };
+      
+      const audio_captured = timestamps.audio_captured;
+      const sent_to_worker = timestamps.sent_to_worker;
+      const worker_received = timestamps.worker_received;
+      const inference_starts = timestamps.inference_starts;
+      const inference_finishes = timestamps.inference_finishes;
+      const main_receives = timestamps.main_receives;
+      const ipc_to_renderer = timestamps.ipc_to_renderer;
+      const renderer_receives = timestamps.renderer_receives;
+      const dom_updated = timestamps.dom_updated;
+      const displayed = timestamps.displayed;
+
+      // Latency deltas
+      const capture_to_sent = sent_to_worker - audio_captured;
+      const sent_to_received = worker_received - sent_to_worker;
+      const queue_wait = inference_starts - worker_received;
+      const inference = inference_finishes - inference_starts;
+      const worker_to_main = main_receives - inference_finishes;
+      const main_to_ipc = ipc_to_renderer - main_receives;
+      const ipc_duration = renderer_receives - ipc_to_renderer;
+      const dom_render = dom_updated - renderer_receives;
+      const paint_delay = displayed - dom_updated;
+      const total_latency = displayed - audio_captured;
+
+      logger.info(`[LATENCY_PIPELINE] Segment: ${id}
+  - Capture to Main Sent:   ${capture_to_sent}ms
+  - Pipe Write to Worker:   ${sent_to_received}ms
+  - Worker Queue Wait:      ${queue_wait}ms
+  - GPU Inference Time:     ${inference}ms
+  - Worker to Main Read:    ${worker_to_main}ms
+  - Main Processing Time:   ${main_to_ipc}ms
+  - IPC to Renderer:        ${ipc_duration}ms
+  - Renderer DOM Update:    ${dom_render}ms
+  - Screen Paint Delay:     ${paint_delay}ms
+  ==========================================
+  TOTAL END-TO-END LATENCY: ${total_latency}ms`);
+
+      return { success: true };
+    });
+
     ipcMain.handle("append-transcript", (event, text, timestamp) => {
       meetingMemoryService.appendTranscript(text, timestamp);
       const estTime = new Intl.DateTimeFormat('en-US', {
@@ -548,6 +623,7 @@ class ApplicationController {
     ipcMain.handle("clear-session-memory", () => {
       sessionManager.clear();
       meetingMemoryService.clear();
+      documentService.clear();
       this.meetingTranscript = { segments: [], lastAnswerAt: 0 };
       windowManager.broadcastToAllWindows("session-cleared");
       return { success: true };
@@ -556,9 +632,28 @@ class ApplicationController {
     ipcMain.handle('session:start', async () => {
       console.log('[IPC] session:start received');
       const result = await persistentSession.startSession();
+      if (result) {
+        documentService.setSession(result.id, result.filePath);
+      }
       BrowserWindow.getAllWindows().forEach((window) => {
         window.webContents.send("session-started");
       });
+      return result;
+    });
+
+    ipcMain.handle('session:reopen', async (event, sessionId) => {
+      console.log(`[IPC] session:reopen received for ${sessionId}`);
+      const result = await persistentSession.reopenSession(sessionId, {
+        meetingMemoryService,
+        sessionManager,
+        transcriptStore,
+        documentService
+      });
+      if (result && result.success) {
+        BrowserWindow.getAllWindows().forEach((window) => {
+          window.webContents.send("session-started");
+        });
+      }
       return result;
     });
 
@@ -569,6 +664,7 @@ class ApplicationController {
         sessionManager,
         transcriptBuffer: this.meetingTranscript,
       });
+      documentService.clear();
       return result;
     });
 
@@ -608,6 +704,71 @@ class ApplicationController {
       return { success: false, error: 'Session file not found' };
     });
 
+    // Document Management IPC Handlers
+    ipcMain.handle("documents:upload", async () => {
+      const { dialog } = require('electron');
+      const mainWindow = windowManager.getWindow("chat") || windowManager.getWindow("main");
+      
+      const fileResult = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select Documents to Attach',
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          { name: 'All Supported Documents', extensions: ['pdf', 'docx', 'txt', 'md', 'markdown', 'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rs', 'rb', 'php', 'html', 'css', 'json', 'xml', 'yaml', 'yml'] },
+          { name: 'PDF Documents', extensions: ['pdf'] },
+          { name: 'Word Documents', extensions: ['docx'] },
+          { name: 'Plain Text/Markdown', extensions: ['txt', 'md', 'markdown'] },
+          { name: 'Code Files', extensions: ['js', 'jsx', 'ts', 'tsx', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rs', 'rb', 'php', 'html', 'css', 'json', 'xml', 'yaml', 'yml'] }
+        ]
+      });
+
+      if (fileResult.canceled || fileResult.filePaths.length === 0) {
+        logger.info('Document upload cancelled by user');
+        return { success: false, error: 'Cancelled' };
+      }
+
+      try {
+        const results = await documentService.handleUpload(
+          fileResult.filePaths,
+          llmService,
+          () => {
+            windowManager.broadcastToAllWindows("documents-status-updated", documentService.getDocumentsList());
+          }
+        );
+        return { success: true, files: results };
+      } catch (error) {
+        logger.error('Failed to upload documents:', { error: error.stack || error.message });
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("documents:upload-paths", async (event, filePaths) => {
+      try {
+        const results = await documentService.handleUpload(
+          filePaths,
+          llmService,
+          () => {
+            windowManager.broadcastToAllWindows("documents-status-updated", documentService.getDocumentsList());
+          }
+        );
+        return { success: true, files: results };
+      } catch (error) {
+        logger.error('Failed to upload dropped paths:', { error: error.stack || error.message });
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("documents:list", () => {
+      return documentService.getDocumentsList();
+    });
+
+    ipcMain.handle("documents:delete", (event, docId) => {
+      const success = documentService.deleteDocument(docId);
+      if (success) {
+        windowManager.broadcastToAllWindows("documents-status-updated", documentService.getDocumentsList());
+      }
+      return { success };
+    });
+
 
     ipcMain.handle("force-always-on-top", () => {
       windowManager.forceAlwaysOnTopForAllWindows();
@@ -643,19 +804,21 @@ class ApplicationController {
       // Process with local transcript context + manualText using ContextBuilder
       setTimeout(async () => {
         try {
-          const compiledPrompt = contextBuilder.build(manualText);
-          if (!compiledPrompt) {
+          const compiledPromptWithMemory = await contextBuilder.build(
+            manualText,
+            meetingMemoryService,
+            documentService,
+            'since-last-answer'
+          );
+          if (!compiledPromptWithMemory) {
             logger.warn("Skipping LLM processing for empty compiled prompt");
             return;
           }
 
-          const meetingMemory = meetingMemoryService.getContextForQuestion();
-          const memoryWords = meetingMemory.split(/\s+/).filter(Boolean).length;
-          const tokenEstimate = Math.ceil(memoryWords * 1.33);
-          console.log(`[QUESTION CONTEXT] Injecting meeting memory into LLM call. Total memory: ~${tokenEstimate} tokens`);
-          logger.info(`[QUESTION CONTEXT] Injecting meeting memory into LLM call. Total memory: ~${tokenEstimate} tokens`);
-
-          const compiledPromptWithMemory = meetingMemory + "\n\n" + compiledPrompt;
+          const words = compiledPromptWithMemory.split(/\s+/).filter(Boolean).length;
+          const tokenEstimate = Math.ceil(words * 1.33);
+          console.log(`[QUESTION CONTEXT] Compiled prompt built. Total estimate: ~${tokenEstimate} tokens`);
+          logger.info(`[QUESTION CONTEXT] Compiled prompt built. Total estimate: ~${tokenEstimate} tokens`);
 
           const sessionHistory = sessionManager.getOptimizedHistory();
 

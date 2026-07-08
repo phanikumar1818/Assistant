@@ -12,6 +12,14 @@ class MeetingMemoryService {
     this.lastUpdateTokenCount = 0;
     this.UPDATE_TRIGGER_TOKENS = 600; // trigger update when buffer exceeds this
     this.isUpdating = false;
+
+    // Cache prompt templates at startup to prevent synchronous blocking I/O during transcription cycles
+    try {
+      this.factExtractionPromptTemplate = fs.readFileSync(path.join(__dirname, '../../prompts/fact-extraction.txt'), 'utf8');
+      this.narrativeUpdatePromptTemplate = fs.readFileSync(path.join(__dirname, '../../prompts/narrative-update.txt'), 'utf8');
+    } catch (err) {
+      logger.error('[MEMORY] Failed to load prompts at startup:', err);
+    }
   }
 
   log(msg, level = 'info') {
@@ -114,7 +122,7 @@ class MeetingMemoryService {
 
   async extractFacts(chunk) {
     try {
-      const promptTemplate = fs.readFileSync(path.join(__dirname, '../../prompts/fact-extraction.txt'), 'utf8');
+      const promptTemplate = this.factExtractionPromptTemplate || "";
 
       const existingFactsStr = JSON.stringify(this.layer1, null, 2);
       const prompt = promptTemplate
@@ -160,7 +168,7 @@ class MeetingMemoryService {
 
   async updateNarrative(chunk) {
     try {
-      const promptTemplate = fs.readFileSync(path.join(__dirname, '../../prompts/narrative-update.txt'), 'utf8');
+      const promptTemplate = this.narrativeUpdatePromptTemplate || "";
 
       const currentNarrative = this.layer2 || "No narrative summary yet.";
       const prompt = promptTemplate

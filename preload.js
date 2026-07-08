@@ -114,9 +114,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendRecordingStopped: () => ipcRenderer.send('web-speech-stopped'),
   
   // Local Whisper transcription IPC helpers
-  sendAudioChunk: (float32Array) => ipcRenderer.send('audio-chunk', float32Array),
+  sendAudioChunk: (chunkData) => ipcRenderer.send('audio-chunk', chunkData),
   onTranscriptSegment: (callback) => ipcRenderer.on('transcript-segment', (event, segment) => callback(segment)),
   onWhisperStatus: (callback) => ipcRenderer.on('whisper-status', (event, status) => callback(status)),
+  sendTranscriptRendered: (data) => ipcRenderer.invoke('transcript-rendered', data),
   
   // New streaming events
   onResponseStart: (cb) => ipcRenderer.on('ai-response-start', (_e, data) => cb(data)),
@@ -149,7 +150,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sessionDelete: (id) => ipcRenderer.invoke('session:delete', id),
   sessionRename: (id, title) => ipcRenderer.invoke('session:rename', id, title),
   sessionGetContent: (id) => ipcRenderer.invoke('session:get-content', id),
-  sessionOpenFile: (id) => ipcRenderer.invoke('session:open-file', id)
+  sessionOpenFile: (id) => ipcRenderer.invoke('session:open-file', id),
+
+  // Document APIs
+  uploadDocuments: () => ipcRenderer.invoke('documents:upload'),
+  uploadPaths: (paths) => ipcRenderer.invoke('documents:upload-paths', paths),
+  getDocumentsList: () => ipcRenderer.invoke('documents:list'),
+  deleteDocument: (docId) => ipcRenderer.invoke('documents:delete', docId),
+  sessionReopen: (sessionId) => ipcRenderer.invoke('session:reopen', sessionId),
+  onDocumentsUpdated: (callback) => ipcRenderer.on('documents-status-updated', callback)
 })
 
 contextBridge.exposeInMainWorld('api', {
